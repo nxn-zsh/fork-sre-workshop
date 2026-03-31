@@ -31,10 +31,10 @@
   - [3.1 什麼是 Dockerfile？](#31-什麼是-dockerfile)
   - [3.2 Dockerfile 基礎指令](#32-dockerfile-基礎指令)
   - [3.3 為 Go 應用撰寫 Dockerfile](#33-為-go-應用撰寫-dockerfile)
-- [Part 4：綜合演練與延伸學習](#part-4綜合演練與延伸學習)
+- [Part 4：綜合演練](#part-4綜合演練)
   - [4.1 SDC 的短網址服務 Shlink](#41-sdc-的短網址服務-shlink)
-  - [4.2 常見問題排查](#42-常見問題排查)
-  - [4.3 延伸學習資源](#43-延伸學習資源)
+  - [4.2 練習：找出壞掉的 Docker Compose](#42-練習找出壞掉的-docker-compose)
+- [Part 5：延伸學習資源](#part-5延伸學習資源)
 - [附錄](#附錄)
   - [附錄 A：Docker 指令速查表](#附錄-adocker-指令速查表)
   - [附錄 B：Dockerfile 指令速查表](#附錄-bdockerfile-指令速查表)
@@ -1476,7 +1476,7 @@ curl http://localhost:8080/health
 
 ---
 
-## Part 4：綜合演練與延伸學習
+## Part 4：綜合演練
 
 ### 4.1 SDC 的短網址服務 Shlink
 
@@ -1665,84 +1665,84 @@ volumes:
 ```
 ---
 
-### 4.2 常見問題排查
+### 4.2 練習：找出壞掉的 Docker Compose
 
-某天半夜，Ocean 被 Andrew 的訊息吵醒：「服務掛了你快看一下！」Ocean 睡眼惺忪地打開電腦，容器起不來，log 一片紅字。這種時候不要慌，先照著以下的排查步驟走。
+Andrew 寫了一個 `docker-compose.yml` 想把服務跑起來，但不管怎麼 `docker compose up` 都有東西壞掉。他把檔案丟給 Ocean：「幫我看一下哪裡寫錯了」。
 
-#### 容器啟動失敗
+這個 Compose 檔裡有三個服務：`web`（Nginx）、`api`（Alpine）、`db`（PostgreSQL），但藏了**三個設定錯誤**。你的任務是把它們全部找出來並修好。
+
+**Step 1：取得練習檔案**
 
 ```bash
-# 查看容器日誌
-docker logs <container-name>
-
-# 查看容器詳細資訊
-docker inspect <container-name>
-
-# 檢查容器退出碼
-docker inspect --format='{{.State.ExitCode}}' <container-name>
-# 0   = 正常退出
-# 1   = 應用程式錯誤
-# 137 = OOM Killed 或 SIGKILL
-# 143 = SIGTERM（正常停止）
+cd exercises/debug
 ```
 
-#### 容器間無法連線
+**Step 2：啟動服務，觀察發生什麼事**
 
 ```bash
-# 確認容器在同一網路
+docker compose up -d
+docker compose ps
+```
+
+你會發現有些服務不在 `running` 狀態。
+
+**Step 3：開始排查**
+
+以下是你會用到的排查指令：
+
+```bash
+# 查看某個服務的日誌
+docker compose logs <service-name>
+
+# 查看容器退出碼
+docker inspect --format='{{.State.ExitCode}}' <container-name>
+
+# 查看網路內有哪些容器
 docker network inspect <network-name>
 
-# 進入容器測試連線
-docker exec -it api sh
-# 在容器內執行：
-#   ping db
-#   wget -qO- http://api:8080/health
+# 進入容器內測試連線
+docker exec -it <container-name> sh
 ```
 
-#### 磁碟空間不足
+**Step 4：修好 `docker-compose.yml`，重新啟動**
 
 ```bash
-# 查看 Docker 佔用空間
-docker system df
-
-# 清理所有未使用的資源（映像檔、容器、網路、Volume）
-docker system prune -a --volumes
-# ⚠ 注意：此操作將刪除所有未使用的資料，請謹慎執行
+docker compose down
+# 修改 docker-compose.yml ...
+docker compose up -d
+docker compose ps
 ```
 
-#### 映像檔建置快取問題
+反覆排查與修正，直到所有服務都正常運作。
+
+**Step 5：驗證結果**
 
 ```bash
-# 強制不使用快取重新建置
-docker build --no-cache -t my-app .
+# web 應該回傳 200
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8080
 
-# Compose 中強制重新建置
-docker compose build --no-cache
-docker compose up -d --build --force-recreate
+# api 的日誌應該顯示成功取得 web 的回應
+docker compose logs api
+
+# db 應該在正常運作
+docker compose exec db pg_isready
 ```
 
-#### 常見錯誤訊息
+**Step 6：清理**
 
-| 錯誤訊息 | 原因 | 解決方式 |
-|---------|------|---------|
-| `port is already allocated` | 宿主機連接埠被佔用 | 更換連接埠或停止佔用的程序 |
-| `no space left on device` | 磁碟空間不足 | 執行 `docker system prune` |
-| `network not found` | 網路不存在 | 檢查 `docker-compose.yml` 的 `networks` 設定 |
-| `exec format error` | 映像檔平台不符 | 加上 `--platform linux/amd64` 重新建置 |
-| `permission denied` | 權限不足 | 檢查 `USER` 指令或目錄權限 |
-| `connection refused` | 服務尚未就緒 | 新增 `depends_on` + `healthcheck` |
+```bash
+docker compose down
+```
+
+> 提示：三個錯誤分別跟「連接埠」、「網路」、「環境變數」有關。如果卡住了，可以參考 `docker-compose.answer.yml`。
 
 ---
 
-### 4.3 延伸學習資源
-
-#### 官方文件
+## Part 5：延伸學習資源
 
 - [Docker 官方文件](https://docs.docker.com/)
 - [Dockerfile 最佳實踐](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
 - [Docker Compose 規格](https://docs.docker.com/compose/compose-file/)
-
-#### 進階主題
 
 | 主題 | 說明 |
 |------|------|
