@@ -1734,7 +1734,7 @@ docker compose exec db pg_isready
 docker compose down
 ```
 
-> 提示：三個錯誤分別跟「連接埠」、「網路」、「環境變數」有關。如果卡住了，可以參考 `docker-compose.answer.yml`。
+> 提示：三個錯誤分別跟「連接埠」、「網路」、「環境變數」有關。如果卡住了，可以參考 `../answer/docker-compose.yml`。
 
 ---
 
