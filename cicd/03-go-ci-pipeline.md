@@ -2,7 +2,6 @@
 
 Ocean 成功跑完第一個 Hello World workflow 後信心大增。Andrew 看到後問他：「那你能幫我的 Go 專案也設一個自動化測試嗎？每次 push 完都要手動跑 `go test`，我已經受夠了。」Ocean 二話不說就接下了這個挑戰。
 
-
 ## 目錄
 
 - [學習目標](#學習目標)
@@ -14,8 +13,8 @@ Ocean 成功跑完第一個 Hello World workflow 後信心大增。Andrew 看到
 - [Matrix Strategy](#matrix-strategy)
 - [Artifacts 深入](#artifacts-深入)
 - [實用技巧](#實用技巧)
-- [常見問題排解](#常見問題排解)
 - [PR 觸發的 CI](#pr-觸發的-ci)
+- [常見問題排解](#常見問題排解)
 - [小結與練習題](#小結與練習題)
 
 
@@ -150,6 +149,21 @@ func TestHomeHandler(t *testing.T) {
 ```
 
 ## 完整 CI Workflow
+
+在上一章的 `hello.yml` 裡，每個 step 都是用 `run` 來執行 shell 指令。但在真正的 CI workflow 裡，很多步驟是大家都要做的（例如把程式碼 checkout 下來、安裝 Go 環境），這些不用自己從頭寫，可以用 `uses` 來引用別人寫好的 **Action**：
+
+```yaml
+# run — execute a shell command yourself
+- run: go test ./...
+
+# uses — use a pre-built Action from the community
+- uses: actions/checkout@v4
+- uses: actions/setup-go@v5
+  with:
+    go-version: '1.24'
+```
+
+`uses` 的格式是 `{owner}/{repo}@{version}`，例如 `actions/checkout@v4` 就是 GitHub 官方提供的 checkout Action 第 4 版。建議固定版本號（用 `@v4` 而非 `@main`），避免未預期的變更。更多常用的 Actions 可以參考 [參考手冊](02-reference.md#常見-actions)。
 
 以下是我們要為範例專案建立的完整 CI workflow。請在 `.github/workflows/ci.yml` 中建立這個檔案：
 
@@ -323,6 +337,7 @@ total:                              (statements)    93.3%
 - **100%** 表示該函式的每一行都被測試到了
 - **80%** 表示有 20% 的程式碼路徑沒有被測試覆蓋
 - 一般來說，核心業務邏輯建議達到 **80% 以上** 的覆蓋率
+
 #### Artifact 上傳
 
 ```yaml
@@ -713,32 +728,11 @@ concurrency:
 
 這在 PR workflow 中特別有用，當你在短時間內推了多個 commit 到 PR，只需要跑 **最新那次** 的 CI 就好，前面的可以取消。
 
-## 常見問題排解
-
-#### 1. `go test` 在 CI 通過但本地失敗（或反過來）
-
-最常見的原因是 **Race Detector** 的行為差異。CI 中使用 `-race` flag，但你本地可能沒加。另一個原因是環境差異，例如 Go 版本不同、作業系統不同。
-
-**排解方式**：在本地也用 `go test -race ./...` 來跑測試，確保行為一致。
-
-#### 2. golangci-lint 報錯但本地沒事
-
-可能是 golangci-lint 版本不同。CI 中用 `version: latest` 會拿到最新版，但你本地可能是舊版。
-
-**排解方式**：在 `.golangci.yml` 中鎖定你要的規則，或在 CI 中指定 golangci-lint 的版本號而非 `latest`。
-
-#### 3. Cache 沒有生效
-
-第一次跑一定沒有 cache。如果後續執行 cache 還是沒命中，檢查 `go.sum` 是否有變動。`setup-go` 用 `go.sum` 的 hash 作為 cache key，只要 `go.sum` 有改動，cache 就會失效。
-
-**排解方式**：在 Actions log 中搜尋 "cache" 關鍵字，查看 cache hit 或 miss 的訊息。
-
-
 ## PR 觸發的 CI
 
-前面的 CI workflow 都是用 `on: push` 觸發，也就是程式碼推上去之後才跑檢查。但在團隊協作中，我們通常會希望在 **PR 階段就先跑一次檢查**，確認合併後不會壞掉，而不是等合進 `main` 才發現問題。
+前面的 CI workflow 裡我們同時設了 `on: push` 和 `on: pull_request`，這兩個觸發條件的用途不一樣。`push` 是程式碼合併到 `main` 之後跑的，`pull_request` 則是在 PR 階段就先跑一次檢查，確認合併後不會壞掉。
 
-做法很簡單，把觸發條件從 `push` 改成 `pull_request` 就好：
+如果你的 workflow 只需要在 PR 階段跑，可以只設 `pull_request`：
 
 ```yaml
 on:
@@ -794,6 +788,27 @@ permissions:
 - ✅ **程式碼檢查仍然可以執行**：lint、test、build 等不需要 secrets 的檢查不受影響
 
 這是為了防止惡意的 fork PR 竊取你的 secrets 或修改你的 repository。
+
+
+## 常見問題排解
+
+### 1. `go test` 在 CI 通過但本地失敗（或反過來）
+
+最常見的原因是 **Race Detector** 的行為差異。CI 中使用 `-race` flag，但你本地可能沒加。另一個原因是環境差異，例如 Go 版本不同、作業系統不同。
+
+**排解方式**：在本地也用 `go test -race ./...` 來跑測試，確保行為一致。
+
+### 2. golangci-lint 報錯但本地沒事
+
+可能是 golangci-lint 版本不同。CI 中用 `version: latest` 會拿到最新版，但你本地可能是舊版。
+
+**排解方式**：在 `.golangci.yml` 中鎖定你要的規則，或在 CI 中指定 golangci-lint 的版本號而非 `latest`。
+
+### 3. Cache 沒有生效
+
+第一次跑一定沒有 cache。如果後續執行 cache 還是沒命中，檢查 `go.sum` 是否有變動。`setup-go` 用 `go.sum` 的 hash 作為 cache key，只要 `go.sum` 有改動，cache 就會失效。
+
+**排解方式**：在 Actions log 中搜尋 "cache" 關鍵字，查看 cache hit 或 miss 的訊息。
 
 
 ## 小結與練習題

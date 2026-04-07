@@ -42,6 +42,7 @@ cicd/
 ├── README.zh-TW.md                    # Chinese version
 ├── 01-cicd-intro.md                   # CI/CD concepts
 ├── 02-github-actions-basics.md        # GitHub Actions fundamentals + hands-on
+├── 02-reference.md                    # GitHub Actions reference (Events, Actions, Context, etc.)
 ├── 03-go-ci-pipeline.md               # Go CI pipeline
 ├── 04-release-automation.md           # Release automation
 ├── 05-deployment.md                   # Cloud deployment

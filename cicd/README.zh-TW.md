@@ -84,6 +84,7 @@ cicd/
 ├── README.zh-TW.md                    # 本檔案
 ├── 01-cicd-intro.md                   # CI/CD 概念介紹
 ├── 02-github-actions-basics.md        # GitHub Actions 基礎（含實作）
+├── 02-reference.md                    # GitHub Actions 參考手冊
 ├── 03-go-ci-pipeline.md               # Go 專案 CI Pipeline
 ├── 04-release-automation.md           # Release 自動化
 ├── 05-deployment.md                   # 部署到雲端平台
