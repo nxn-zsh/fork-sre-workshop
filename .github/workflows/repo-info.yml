@@ -17,12 +17,9 @@ jobs:
       - name: Show repository name
         run: jq -r .full_name repo.json
 
-      # This step will fail on purpose: the field name should be
-      # `stargazers_count`, not `stars`. Used in ch02 to demonstrate
-      # how a failed step blocks the rest of the job.
       - name: Show star count
         run: |
-          STARS=$(jq -e .stars repo.json)
+          STARS=$(jq -e .stargazers_count repo.json)
           echo "This repo has $STARS stars"
 
       - name: Show description
