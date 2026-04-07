@@ -8,8 +8,6 @@ Ocean 成功跑完第一個 Hello World workflow 後信心大增。Andrew 看到
 - [範例專案介紹](#範例專案介紹)
 - [完整 CI Workflow](#完整-ci-workflow)
 - [逐段解說](#逐段解說)
-- [PR 觸發的 CI](#pr-觸發的-ci)
-- [常見問題排解](#常見問題排解)
 - [小結與練習題](#小結與練習題)
 
 
@@ -41,9 +39,9 @@ cicd/examples/sample-app/
 
 | Endpoint | Method | 功能 | 回傳範例 |
 |----------|--------|------|---------|
-| `/` | GET | 首頁歡迎訊息 | `{"message": "Hello, World!"}` |
-| `/health` | GET | 健康檢查 | `{"status": "ok"}` |
-| `/version` | GET | 版本資訊 | `{"version": "1.0.0"}` |
+| `/` | GET | 首頁歡迎訊息 | `Hello, GitHub Actions!`（純文字） |
+| `/health` | GET | 健康檢查 | `{"status":"ok"}` |
+| `/version` | GET | 版本資訊 | `{"version":"dev"}` |
 
 並在 `handler_test.go` 中用 Go 標準函式庫的 `testing` 和 `net/http/httptest` 寫了單元測試。程式碼細節可以直接打開 `cicd/examples/sample-app/` 查看，這章的重點是幫它建立 CI pipeline。
 
@@ -126,7 +124,7 @@ jobs:
         with:
           go-version: '1.24'
       - name: Build binary
-        run: go build -o bin/app ./...
+        run: go build -o bin/app .
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -148,8 +146,14 @@ on:
     branches: [main]
 ```
 
-這個 workflow 會在 push 到 `main` 或有 PR 指向 `main` 時執行。`pull_request` 在合併前先檢查一次，`push` 作為合併後的最後防線。兩者的細節差異與進階設定（activity types、permissions、fork 限制）見下方「[PR 觸發的 CI](#pr-觸發的-ci)」。
+這個 workflow 會在兩種時機被觸發：程式碼 push 到 `main` 時，以及當有 PR 準備合併進 `main` 時。
 
+兩者扮演的角色不同：`pull_request` 是合併前的品質檢查，目的是在修改進入 `main` 之前先攔下有問題的程式碼；`push` 則是合併後的最終驗證，確認實際進入 `main` 的版本仍然是健康的。兩者同時設定，就能同時兼顧「合併前的預防」與「合併後的驗證」。
+
+此外，有一個容易被忽略的細節值得特別說明：當 `pull_request` 事件被觸發時，GitHub Actions 實際執行的並不是分支上的 commit，而是**將該分支模擬合併進 `main` 後所產生的 merge commit**。這樣的設計讓測試結果反映的是合併後的實際狀態，因此合併衝突或相容性問題能在 PR 階段就被及早發現。
+
+
+> **先講一個共通點**：接下來三個 job（lint、test、build）的前兩個 step 都是 `actions/checkout` 和 `actions/setup-go`。這不是贅寫——**每個 job 都跑在全新的 runner 上**，前一個 job 下載的程式碼和安裝的 Go 到了下一個 job 就不存在了，所以每個 job 都要自己從零準備一次。也正是因為這個隔離性，跨 job 傳檔案才要靠 artifact（待會兒的 Test Job 會介紹）。
 
 ### Lint Job — 程式碼品質檢查
 
@@ -168,7 +172,7 @@ lint:
         version: latest
 ```
 
-**Linter** 是一種靜態分析工具，它不會執行你的程式碼，而是檢查程式碼的風格、潛在錯誤和不良寫法——就像文章的文法檢查器，但針對的是程式碼。[golangci-lint](https://golangci-lint.run/) 是 Go 生態系中最受歡迎的 linter，它整合了數十個 linter（如 `govet`、`errcheck`、`staticcheck` 等），只需要一個指令就能執行所有檢查。
+**Linter** 是一種靜態分析工具，它不會執行你的程式碼，而是檢查程式碼的風格、潛在錯誤和不良寫法。[golangci-lint](https://golangci-lint.run/) 是 Go 生態系中最受歡迎的 linter，它整合了數十個 linter（如 `govet`、`errcheck`、`staticcheck` 等），只需要一個指令就能執行所有檢查。
 
 這個 job 裡每個 step 做的事：
 
@@ -178,10 +182,18 @@ lint:
 | `actions/setup-go@v5` | 安裝 Go 1.24 | golangci-lint 需要 Go 環境 |
 | `golangci-lint-action@v6` | 執行 golangci-lint | 檢查程式碼品質 |
 
-其中 [golangci/golangci-lint-action](https://github.com/golangci/golangci-lint-action) 是社群維護的 Action，會自動下載並安裝 golangci-lint、快取執行結果，並在偵測到 `.golangci.yml` 時自動套用設定。
+其中 [golangci/golangci-lint-action](https://github.com/golangci/golangci-lint-action) 是社群維護的 Action，會自動下載並安裝 golangci-lint、快取執行結果，並在偵測到 `.golangci.yml` 時自動套用設定。`sample-app` 已經附了一份 `.golangci.yml`，所以會直接用那份設定。
 
 
 ### Test Job — 自動化測試
+
+#### 什麼是「測試」？
+
+簡單說，**測試（test）就是另一段你寫的程式，專門用來驗證你主要的程式碼是否如預期運作**。舉例來說，sample-app 裡的 `handler.go` 定義了 `/health` 這個 endpoint 會回傳 `{"status":"ok"}`，那對應的測試（在 `handler_test.go`）就會模擬一個 HTTP 請求打進這個 endpoint，檢查它真的回了 `200` 狀態碼和正確的 JSON 內容。如果之後有人不小心改壞 `handler.go`，測試就會失敗，CI 會立刻擋住這次改動。
+
+Go 的測試不需要額外安裝框架，標準函式庫裡的 `testing` 套件就能寫，檔名以 `_test.go` 結尾就會被自動辨識成測試檔案。執行所有測試的指令是 `go test ./...`。
+
+本章我們不深入教怎麼寫 Go 測試，只要知道**「CI 會自動跑 `go test`，測試沒過就不能合併」**這個概念，就足以理解下面的 workflow 在做什麼。
 
 ```yaml
 test:
@@ -218,10 +230,10 @@ test:
 
 ```bash
 # Example output of go tool cover -func
-github.com/user/app/handler.go:10:  HomeHandler     100.0%
-github.com/user/app/handler.go:17:  HealthHandler   100.0%
-github.com/user/app/handler.go:24:  VersionHandler  80.0%
-total:                              (statements)    93.3%
+github.com/example/sample-app/handler.go:10:  handleRoot     100.0%
+github.com/example/sample-app/handler.go:15:  handleHealth   100.0%
+github.com/example/sample-app/handler.go:23:  handleVersion   80.0%
+total:                                        (statements)   93.3%
 ```
 
 - **100%** 表示該函式的每一行都被測試到了
@@ -240,24 +252,25 @@ total:                              (statements)    93.3%
 
 這是我們第一次用到 **artifact**。
 
-不同 job 在不同的 Runner 上執行，檔案系統互不相通，所以 job 之間如果要傳檔案就要靠 artifact。`upload-artifact` 把檔案上傳到 GitHub，後面的 job 可以用 `download-artifact` 取回，或是在 Actions 頁面手動下載。
+不同 job 在不同的 Runner 上執行，檔案系統互不相通，所以 job 之間如果要傳檔案就要靠 artifact。`upload-artifact` 會把檔案上傳到 GitHub，之後你可以：
+
+1. 在 Actions 頁面手動下載（例如下載 coverage report 來看）
+2. 在同一個 workflow 的另一個 job 用 `actions/download-artifact@v4` 把它取回來用
+
+本章只用到第一種：把 coverage 和 binary 上傳，讓你可以到 Actions 頁面下載。未來 04 章的 deploy 流程要用到 binary 時，就會用 `download-artifact` 把 build job 上傳的那份取回來，不用重新編譯。
+
+Artifact 預設保存 90 天，可以用 `retention-days` 自訂（最短 1 天，最長 90 天）。
+
+#### 一個常見的加碼：`go mod verify`
+
+Test job 還有一個 Go 開發者常順手加上的小檢查，放在 `go test` 之前：
 
 ```yaml
-# Upload (in one job)
-- uses: actions/upload-artifact@v4
-  with:
-    name: coverage-report      # Artifact name
-    path: coverage.out         # File or directory to upload
-    retention-days: 7          # How long to keep (default: 90 days)
-
-# Download (in another job)
-- uses: actions/download-artifact@v4
-  with:
-    name: coverage-report      # Must match the upload name
-    path: ./downloaded/        # Where to save
+- name: Verify dependencies
+  run: go mod verify
 ```
 
-Artifact 預設保存 90 天，可以用 `retention-days` 自訂（最短 1 天，最長 90 天，Pro/Team 方案最長 400 天）。
+`go mod verify` 會比對本地 module cache 和 `go.sum` 裡記錄的 hash，確認依賴套件沒被偷改過——成本極低、有問題就早點發現。練習題會讓你動手把它加進 `ci.yml`。
 
 
 ### Build Job — 建置可執行檔
@@ -273,7 +286,7 @@ build:
       with:
         go-version: '1.24'
     - name: Build binary
-      run: go build -o bin/app ./...
+      run: go build -o bin/app .
     - name: Upload binary
       uses: actions/upload-artifact@v4
       with:
@@ -307,78 +320,9 @@ Build 產出的 binary 同樣用 `upload-artifact` 上傳，後續的 deploy job
 
 > **關於快取**：`actions/setup-go@v5` 偵測到 `go.sum` 時會自動快取 Go modules，後續執行只要 `go.sum` 沒變就會直接用快取，不用額外設定。
 
-## PR 觸發的 CI
+#### 延伸：Release 自動化
 
-前面的 CI workflow 同時設了 `on: push` 和 `on: pull_request`，兩者的用途不一樣：
-
-- **`pull_request`**：在 PR 階段就先檢查一次，確認合併後不會壞掉。它會在**模擬合併後的 merge commit** 上執行，能及早發現合併衝突或不相容。
-- **`push`**：合併到 `main` 之後的最後防線，確認分支上的程式碼真的正常。
-
-兩個一起設可以兼顧「合併前預防」和「合併後驗證」。如果你的 workflow 只想在 PR 階段跑，也可以只設 `pull_request`：
-
-```yaml
-on:
-  pull_request:
-    branches: [main]
-```
-
-### `pull_request` 的觸發類型
-
-`pull_request` 事件可以指定 activity types，控制什麼情況下要重跑 workflow：
-
-| Type | 觸發時機 | 說明 |
-|------|---------|------|
-| `opened` | PR 剛建立時 | 第一次提交 PR |
-| `synchronize` | 有新 commit push 到 PR 時 | 更新程式碼後重新檢查 |
-| `reopened` | 關閉後重新開啟 PR 時 | 重新開啟需要再次檢查 |
-| `ready_for_review` | 從 Draft 變成 Ready 時 | 只在正式 review 時才跑的檢查 |
-
-預設會包含 `opened`、`synchronize`、`reopened`，多數情況不用自己指定。
-
-### Permissions 設定
-
-PR workflow 建議明確設定 `permissions`，遵循最小權限原則：
-
-```yaml
-permissions:
-  contents: read
-  pull-requests: write
-  checks: write
-```
-
-| 權限 | 用途 |
-|------|------|
-| `contents: read` | 讀取 repository 的程式碼 |
-| `pull-requests: write` | 允許在 PR 上留言或更新 status |
-| `checks: write` | 允許建立 check run 結果 |
-
-### Fork PR 的安全限制
-
-當有人從 **fork** 的 repository 提交 PR 時，GitHub 會有一些安全限制，避免惡意的 fork PR 竊取你的 secrets 或修改 repository：
-
-- **無法存取 secrets**：fork PR 的 workflow 無法讀取 repository 的 secrets
-- **寫入權限受限**：預設只有 read 權限
-- **程式碼檢查仍可執行**：lint、test、build 等不需要 secrets 的檢查不受影響
-
-
-## 常見問題排解
-
-### 1. `go test` 在 CI 通過但本地失敗（或反過來）
-
-最常見的原因是 **Race Detector** 的行為差異。CI 中使用 `-race` flag，但你本地可能沒加。另一個原因是環境差異，例如 Go 版本不同、作業系統不同。
-
-**排解方式**：在本地也用 `go test -race ./...` 來跑測試，確保行為一致。
-
-### 2. golangci-lint 報錯但本地沒事
-
-可能是 golangci-lint 版本不同。CI 中用 `version: latest` 會拿到最新版，但你本地可能是舊版。
-
-**排解方式**：在 `.golangci.yml` 中鎖定你要的規則，或在 CI 中指定 golangci-lint 的版本號而非 `latest`。
-
-### 3. Cache 沒有生效
-
-`setup-go` 用 `go.sum` 的 hash 作為 cache key，只要 `go.sum` 有改動 cache 就會失效。第一次跑也一定沒有 cache。在 Actions log 中搜尋 "cache" 關鍵字可以看到 cache hit 或 miss 的訊息。
-
+同樣是從 binary 出發，再往前一步就會遇到 **Release**：當專案穩定後，你會希望把某個特定版本「標記」起來發佈給使用者。做法是用 **Semantic Versioning**（例如 `v1.2.3`，MAJOR 代表破壞性變更、MINOR 代表新功能、PATCH 代表 bug 修正）搭配 **Git Tag** 來標記版本，再透過 `on: push: tags: ['v*']` 觸發一個 release workflow，自動建置產物並建立 GitHub Release。本工作坊不展開細節，有興趣可以查閱 [softprops/action-gh-release](https://github.com/softprops/action-gh-release)。
 
 ## 小結與練習題
 
@@ -392,10 +336,6 @@ permissions:
 - `go test -v -race -coverprofile=coverage.out ./...` 是標準的 CI 測試指令
 - **Artifacts** 用來在不同 job 之間傳遞檔案（例如把 binary 從 build job 傳給 deploy job）
 - 同時設 `on: push` 和 `on: pull_request` 可以兼顧「合併前預防」和「合併後驗證」
-
-### 關於 Release 自動化
-
-當專案穩定後，你會希望把某個特定版本「標記」起來發佈給使用者。這就是 **Release** 的概念：用 **Semantic Versioning**（例如 `v1.2.3`，MAJOR 代表破壞性變更、MINOR 代表新功能、PATCH 代表 bug 修正）搭配 **Git Tag** 來標記版本，並透過 `on: push: tags: ['v*']` 觸發一個 release workflow，自動建置產物並建立 GitHub Release。本工作坊不展開細節，有興趣可以查閱 [softprops/action-gh-release](https://github.com/softprops/action-gh-release)。
 
 ### 練習題
 

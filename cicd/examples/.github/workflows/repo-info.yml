@@ -10,9 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Fetch repository info
-        env:
-          REPO: ${{ github.repository }}
-        run: curl -s "https://api.github.com/repos/${REPO}" > repo.json
+        run: curl -s "https://api.github.com/repos/${{ github.repository }}" > repo.json
 
       - name: Show repository name
         run: jq -r .full_name repo.json

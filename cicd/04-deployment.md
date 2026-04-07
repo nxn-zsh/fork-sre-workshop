@@ -1,15 +1,14 @@
 # 04 — 部署到雲端平台
 
-Ocean 的 CI pipeline 跑得很順。Andrew 興奮地說：「那接下來就是把程式部署到伺服器上讓大家用了吧？」Ocean 點點頭，但又有點緊張，畢竟部署到正式環境可不能出差錯。Snow 說：「別擔心，我們可以設計一套安全的部署流程——先部署到測試環境驗證，確認沒問題再上正式環境。」
+Ocean 的 CI pipeline 跑得很順。Andrew 興奮地說：「那接下來就是把程式部署到伺服器上讓大家用了吧？」Ocean 點點頭，但又有點緊張，畢竟部署到正式環境可不能出差錯。Snow 說：「別擔心，我們可以設計一套安全的部署流程，先部署到測試環境驗證，確認沒問題再上正式環境。」
 
-## Table of Contents
+## 目錄
 
 - [學習目標](#學習目標)
 - [Environments 與 Secrets](#environments-與-secrets)
 - [實戰：部署到 Fly.io](#實戰部署到-flyio)
-- [小結與練習題](#小結與練習題)
 - [補充：多環境部署（Staging → Production）](#補充多環境部署staging--production)
-- [完整 CI/CD Pipeline 全景圖](#完整-cicd-pipeline-全景圖)
+- [結語：完整 CI/CD 全景與工作坊回顧](#結語完整-cicd-全景與工作坊回顧)
 
 
 ## 學習目標
@@ -31,24 +30,23 @@ Ocean 的 CI pipeline 跑得很順。Andrew 興奮地說：「那接下來就是
 - **Protection Rules**：例如 production 需要手動核准才能部署
 - **Deployment branches**：限制只有特定分支能部署到此環境
 
-### 如何設定 Secrets
+### Secret 放哪裡？Repository vs Environment
+
+GitHub 在 Settings 裡有**兩個**可以放 secret 的地方，對新手常造成混淆：
+
+| 放法 | 設定位置 | 適用情境 |
+|------|---------|---------|
+| **Repository secret** | Settings → Secrets and variables → Actions | 所有 workflow、所有 job 都可以讀到。最簡單的預設 |
+| **Environment secret** | Settings → Environments → `<env>` → Secrets | 只有明確宣告 `environment: <name>` 的 job 才能讀到。可以搭配 protection rules |
+
+兩種在 workflow 裡都是用 `${{ secrets.XXX }}` 讀取。本章主要只會用一個 `FLY_API_TOKEN`，放 repository secret 就夠了；如果你想讓 production 需要手動核准再部署，才需要改用 environment secret 並設 protection rules。
+
+### 如何設定 Repository Secret
 
 1. 到你的 GitHub repository 頁面，點擊 **Settings**
-2. 左側選單點擊 **Environments** → **New environment**，輸入名稱（例如 `production`）
-3. 在環境設定頁面中，點擊 **Add environment secret**，輸入 Name 和 Secret
-4. 如果要設定手動核准，勾選 **Required reviewers** 並加入核准者
-
-在 workflow 中透過 `${{ secrets.XXX }}` 讀取。
-
-### 環境變數 vs Secrets 的差異
-
-| 面向 | 環境變數（Variables） | Secrets |
-|------|---------------------|---------|
-| **存放內容** | 非敏感資料 | 敏感資料 |
-| **範例** | `REGION=asia-east1`、`APP_NAME=myapp` | API Key、密碼、憑證 |
-| **可見性** | 可以在 log 中看到 | 自動遮蔽，顯示為 `***` |
-| **使用方式** | `${{ vars.REGION }}` | `${{ secrets.API_KEY }}` |
-| **修改** | 可以直接查看和修改值 | 只能覆寫，無法查看原始值 |
+2. 左側選單點擊 **Secrets and variables** → **Actions**
+3. 點擊 **New repository secret**，輸入 Name 和 Secret 值
+4. 儲存
 
 ### Secrets 的安全守則
 
@@ -82,13 +80,19 @@ env:
 
 ### 前置準備
 
-在設定 workflow 之前，先在本機完成一次性的 Fly.io 初始化：
+在設定 workflow 之前，先在本機完成一次性的 Fly.io 初始化。**注意 Fly.io 目前要求所有新帳號綁定信用卡**（即使只用免費額度），所以這一步得有信用卡才能完成。如果你不方便提供，可以只讀這一章的 workflow 範例學觀念，不一定要真的跑起來。
 
-1. 安裝 `flyctl`：[官方安裝指南](https://fly.io/docs/hands-on/install-flyctl/)
-2. 登入：`flyctl auth login`
-3. 在專案根目錄執行 `flyctl launch`——這會產生 `fly.toml` 設定檔（記得把它 commit 到 repo）
-4. 產生 CI 用的 API token：`flyctl tokens create deploy`
-5. 把 token 存到 GitHub Secret，名稱 `FLY_API_TOKEN`
+1. 到 [fly.io](https://fly.io) 註冊帳號，並在 Billing 頁面綁定信用卡
+2. 安裝 `flyctl`：[官方安裝指南](https://fly.io/docs/hands-on/install-flyctl/)
+3. 本機登入：`flyctl auth login`
+4. 在專案根目錄執行 `flyctl launch`。這是一個**互動式指令**，會問你一連串問題：
+   - **App name**：Fly.io 全域唯一，常見名稱會衝突。建議用 `<你的名字>-sample-app` 之類的命名避免重複
+   - **Region**：選離你最近的，例如 `nrt`（東京）或 `hkg`（香港）
+   - **Postgres / Redis**：選 **No**（我們用不到）
+   - **Deploy now?**：可以選 **No**，我們會用 GitHub Actions 部署
+5. 執行完後會在專案根目錄產生 `fly.toml` 設定檔，**記得 `git add fly.toml` 並 commit**，否則 CI 找不到它
+6. 產生 CI 用的 API token：`flyctl tokens create deploy`，把輸出的那串 token 複製起來
+7. 把 token 存到 GitHub Repository Secret，名稱 `FLY_API_TOKEN`（前面 [Secret 放哪裡](#secret-放哪裡repository-vs-environment) 有步驟）
 
 ### 部署 Workflow
 
@@ -133,7 +137,7 @@ on:
 ```
 
 - `push to main`：程式碼合併到 `main` 時自動部署
-- `workflow_dispatch`：也允許在 GitHub UI 手動觸發——需要重新部署但不想改程式碼時很實用
+- `workflow_dispatch`：也允許在 GitHub UI 手動觸發，需要重新部署但不想改程式碼時很實用
 
 **Environment**
 
@@ -141,7 +145,7 @@ on:
 environment: production
 ```
 
-告訴 GitHub 這個 job 使用 `production` 環境。如果 `production` 環境有設定 protection rules（例如需要核准），workflow 會在執行此 job 前暫停，等待核准。
+告訴 GitHub 這個 job 使用 `production` 環境。GitHub 第一次看到沒建過的 environment 會自動建立，所以你**不需要事先設定**這個 environment 也能跑。但如果你之後想要加「production 部署必須手動核准」這類保護規則，就可以到 **Settings → Environments → production** 裡勾 **Required reviewers**，之後 workflow 執行到這個 job 會自動暫停等待核准。
 
 **Deploy 步驟**
 
@@ -162,14 +166,6 @@ environment: production
 
 `FLY_API_TOKEN` 透過環境變數傳遞給 `flyctl`，它會自動識別並用來認證。
 
-
-## 小結與練習題
-
-### 本章重點回顧
-
-- **GitHub Environments**：為不同環境（staging、production）設定獨立的 secrets 和 protection rules
-- **Secrets vs 環境變數**：Secrets 存放敏感資料（自動遮蔽），環境變數存放非敏感設定
-- **Fly.io 部署**：只要 `fly.toml` + `FLY_API_TOKEN`，一個 `flyctl deploy` 就完成
 
 ## 補充：多環境部署（Staging → Production）
 
@@ -264,58 +260,55 @@ jobs:
 設定完成後，當 workflow 執行到 `deploy-production` 時會暫停，核准者需要到 Actions 頁面點擊 **Approve and deploy** 才會繼續。
 
 
-## 完整 CI/CD Pipeline 全景圖
+## 結語：完整 CI/CD 全景與工作坊回顧
 
-恭喜你完成了整個 CI/CD 工作坊！讓我們回顧一下，你現在已經有能力建立這樣一套完整的自動化流程：
+四章走下來，你做了這些事：
+
+- **第二章**：寫了第一個 workflow，push 上去看它跑，認識 workflow / job / step / runner 的關係，也刻意製造一次失敗看 debug 流程
+- **第三章**：把 lint、test、build 三個 job 串成真正的 Go CI。`lint` 和 `test` 透過 `needs` 平行執行、`build` 等兩者都過才啟動；`golangci-lint` 守程式碼品質，`go test -race -coverprofile` 抓 race condition 並收 coverage，`upload-artifact` 把產物上傳方便後續取用。同時也看到 `on: pull_request` 怎麼在 merge 前先攔一次
+- **第四章**：把建好的東西部署到 Fly.io，用 GitHub Environments 管 secrets，一個 `flyctl deploy` 完成部署；補充小節進一步示範 staging 自動部署加 smoke test、production 手動核准的兩階段流程
+
+拼起來，整條從寫程式碼到部署上線的自動化長這樣：
 
 ```
 開發者 push 程式碼
         │
         ▼
 ┌───────────────────────────────────────────────────────┐
-│                   CI Pipeline (ch03)                   │
+│                   CI Pipeline (ch03)                  │
 │                                                       │
-│  ┌──────┐  ┌──────┐                                  │
+│  ┌──────┐  ┌──────┐                                   │
 │  │ Lint │  │ Test │  ← 平行執行                       │
-│  └──┬───┘  └──┬───┘                                  │
-│     └────┬────┘                                      │
-│          ▼                                           │
-│     ┌─────────┐                                      │
-│     │  Build  │                                      │
-│     └─────────┘                                      │
+│  └──┬───┘  └──┬───┘                                   │
+│     └────┬────┘                                       │
+│          ▼                                            │
+│     ┌─────────┐                                       │
+│     │  Build  │                                       │
+│     └─────────┘                                       │
 └───────────────────────────────────────────────────────┘
         │
         │ PR 合併到 main
         ▼
 ┌───────────────────────────────────────────────────────┐
-│                  CD Pipeline (ch04)                   │
+│                   CD Pipeline (ch04)                  │
 │                                                       │
-│  ┌──────────┐    ┌──────────┐    ┌──────────────┐    │
-│  │ Deploy   │───▶│ Smoke    │───▶│ Deploy       │    │
-│  │ Staging  │    │ Test     │    │ Production   │    │
-│  │ (自動)   │    │          │    │ (手動核准)    │    │
-│  └──────────┘    └──────────┘    └──────────────┘    │
+│                  ┌──────────────┐                     │
+│                  │   Deploy     │                     │
+│                  │  to Fly.io   │                     │
+│                  └──────────────┘                     │
+│                                                       │
+│  （進階：staging → smoke test → production 手動核准） │
 └───────────────────────────────────────────────────────┘
 ```
-
-從寫程式碼到部署上線，每個環節都有自動化的品質把關。這就是 CI/CD 的力量。
-
-## 結語
-
-四章走下來，你做了這些事：
-
-- **第二章**：寫了第一個 workflow，push 上去看它跑，認識 workflow / job / step / runner 的關係，也刻意製造一次失敗看 debug 流程
-- **第三章**：把 lint、test、build 三個 job 串成真正的 Go CI。`lint` 和 `test` 透過 `needs` 平行執行、`build` 等兩者都過才啟動；`golangci-lint` 守程式碼品質，`go test -race -coverprofile` 抓 race condition 並收 coverage，`upload-artifact` 把產物交給下一個 job。同時也看到 `on: pull_request` 怎麼在 merge 前先攔一次
-- **第四章**：把建好的東西部署到 Fly.io，用 GitHub Environments 管 secrets，設計 staging 自動部署加 smoke test、production 手動核准的兩階段流程
 
 回頭看第一章 Ocean 和 Andrew 那些抱怨：
 
 | 原本的痛點 | 現在怎麼解 |
 |-----------|-----------|
 | 手動測試每次都花好久 | push 後 CI 自動跑完 lint + test + build |
-| 合併之後才發現壞掉 | PR 階段就先跑一次 CI，壞的改不了合進來 |
+| 合併之後才發現壞掉 | PR 階段就先跑一次 CI，壞掉的改動合不進來 |
 | 部署又忘了步驟 | `flyctl deploy` 一個指令，前置步驟寫進 workflow 裡跑 |
-| 誰都可以亂部署 production | Environment protection 強制手動核准 |
+| 誰都可以亂部署 production | Environment protection 可以強制手動核准 |
 | API key 散落在各處 | 統一放進 GitHub Secrets，log 自動遮蔽 |
 
 沒講到的東西還很多，Release 自動化、image 掃描、GitOps、監控告警之類的，工作上真的碰到再查就好。
