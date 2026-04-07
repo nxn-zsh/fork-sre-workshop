@@ -6,19 +6,13 @@
 - **Andrew** — 整天在喝酒的 SDC 社長，熟悉社團大小事。
 - **Snow** — SDC 開發部長，明明很聰明但常常把事情丟給 Ocean 做，口頭禪是「歐不」。
 
-## 目錄
+## Table of Contents
 
-- [01 — CI/CD 概念介紹](#01--cicd-概念介紹)
-  - [目錄](#目錄)
-  - [軟體開發的多人協作](#軟體開發的多人協作)
-  - [什麼是 CI/CD？](#什麼是-cicd)
-    - [CI（Continuous Integration）](#cicontinuous-integration)
-    - [CD（Continuous Deployment）](#cdcontinuous-deployment)
-    - [SDC 實際怎麼做？](#sdc-實際怎麼做)
-  - [CI/CD Pipeline 流程圖](#cicd-pipeline-流程圖)
-    - [各階段說明](#各階段說明)
-  - [常見的 CI/CD 工具](#常見的-cicd-工具)
-  - [小結](#小結)
+- [軟體開發的多人協作](#軟體開發的多人協作)
+- [什麼是 CI/CD？](#什麼是-cicd)
+- [CI/CD Pipeline 流程圖](#cicd-pipeline-流程圖)
+- [常見的 CI/CD 工具](#常見的-cicd-工具)
+- [小結](#小結)
 
 ## 軟體開發的多人協作
 

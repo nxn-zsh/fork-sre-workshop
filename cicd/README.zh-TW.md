@@ -2,7 +2,7 @@
 
 ## 課程簡介
 
-2 小時的 GitHub Actions 實戰教學課程，從 CI/CD 基礎概念出發，一步步帶你認識 GitHub Actions 的核心觀念與實務操作。課程涵蓋 workflow 撰寫、Go 專案的 CI pipeline 建置、PR 自動化檢查、Release 自動化，以及部署到雲端平台等主題。透過動手實作，你將具備在真實專案中導入 CI/CD 的能力。
+2 小時的 GitHub Actions 實戰教學課程，從 CI/CD 基礎概念出發，一步步帶你認識 GitHub Actions 的核心觀念與實務操作。課程涵蓋 workflow 撰寫、Go 專案的 CI pipeline 建置，以及部署到雲端平台等主題。透過動手實作，你將具備在真實專案中導入 CI/CD 的能力。
 
 ## 適用對象
 
@@ -23,12 +23,9 @@
 | 章節 | 主題 | 時間 |
 |------|------|------|
 | 01 | CI/CD 概念介紹 | 10 分鐘 |
-| 02 | GitHub Actions 基礎 | 15 分鐘 |
-| 03 | 動手做：第一個 Workflow | 15 分鐘 |
-| 04 | Go 專案 CI Pipeline | 20 分鐘 |
-| 05 | PR 檢查自動化 | 15 分鐘 |
-| 06 | Release 自動化 | 20 分鐘 |
-| 07 | 部署到雲端平台 | 15 分鐘 |
+| 02 | GitHub Actions 基礎 | 30 分鐘 |
+| 03 | Go 專案 CI Pipeline | 25 分鐘 |
+| 04 | 部署到雲端平台 | 15 分鐘 |
 | -- | 總結與 Q&A | 10 分鐘 |
 
 > **總計：2 小時（120 分鐘）**
@@ -57,14 +54,7 @@
 - PR 觸發的 CI
 - **練習 2**：完整 CI pipeline 實作
 
-### 04 — Release 自動化（20 分鐘）
-
-- 語意化版本（Semantic Versioning）
-- 自動建置 Docker image
-- GitHub Release 發布
-- **練習 3**：進階自動化實作
-
-### 05 — 部署到雲端平台（15 分鐘）
+### 04 — 部署到雲端平台（15 分鐘）
 
 - CD 流程設計
 - 部署 workflow 撰寫
@@ -84,10 +74,8 @@ cicd/
 ├── README.zh-TW.md                    # 本檔案
 ├── 01-cicd-intro.md                   # CI/CD 概念介紹
 ├── 02-github-actions-basics.md        # GitHub Actions 基礎（含實作）
-├── 02-reference.md                    # GitHub Actions 參考手冊
 ├── 03-go-ci-pipeline.md               # Go 專案 CI Pipeline
-├── 04-release-automation.md           # Release 自動化
-├── 05-deployment.md                   # 部署到雲端平台
+├── 04-deployment.md                   # 部署到雲端平台
 ├── assets/                            # 圖表資源
 │   └── git-flow-diagram.png           # Git Flow 分支模型示意圖
 ├── examples/                          # 範例程式碼
@@ -96,8 +84,7 @@ cicd/
 │   │       ├── hello.yml              # Hello World workflow
 │   │       ├── ci.yml                 # Go CI pipeline
 │   │       ├── pr-check.yml           # PR 檢查自動化
-│   │       ├── release.yml            # Release 自動化
-│   │       └── deploy.yml             # 部署到 Cloud Run
+│   │       └── cd.yml                 # 部署到 Fly.io
 │   └── sample-app/                    # 範例 Go 應用程式
 │       ├── main.go                    # 主程式進入點
 │       ├── handler.go                 # HTTP handler
@@ -106,9 +93,8 @@ cicd/
 │       ├── Dockerfile                 # Docker 映像檔定義
 │       └── .golangci.yml              # golangci-lint 設定
 └── exercises/                         # 練習題
-    ├── exercise-01-basics.md          # 章節 01-03 練習
-    ├── exercise-02-ci-pipeline.md     # 章節 04-05 練習
-    └── exercise-03-advanced.md        # 章節 06-07 練習
+    ├── 01-basics.md                   # 章節 02 練習
+    └── 02-ci-pipeline.md              # 章節 03 練習
 ```
 
 ## 範例專案說明

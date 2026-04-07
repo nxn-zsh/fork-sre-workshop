@@ -31,11 +31,8 @@ sre-workshop/
     ├── README.md          # Workshop overview
     ├── 01-cicd-intro.md   # CI/CD concepts
     ├── 02-github-actions-basics.md
-    ├── 03-first-workflow.md
-    ├── 04-go-ci-pipeline.md
-    ├── 05-pr-checks.md
-    ├── 06-release-automation.md
-    ├── 07-deployment.md
+    ├── 03-go-ci-pipeline.md
+    ├── 04-deployment.md
     ├── examples/          # Sample Go application
     └── exercises/         # Hands-on exercises
 ```

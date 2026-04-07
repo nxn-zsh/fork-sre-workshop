@@ -34,11 +34,8 @@ sre-workshop/
     ├── README.zh-TW.md    # 工作坊總覽（中文）
     ├── 01-cicd-intro.md   # CI/CD 概念介紹
     ├── 02-github-actions-basics.md
-    ├── 03-first-workflow.md
-    ├── 04-go-ci-pipeline.md
-    ├── 05-pr-checks.md
-    ├── 06-release-automation.md
-    ├── 07-deployment.md
+    ├── 03-go-ci-pipeline.md
+    ├── 04-deployment.md
     ├── examples/          # 範例 Go 應用程式
     └── exercises/         # 實作練習
 ```

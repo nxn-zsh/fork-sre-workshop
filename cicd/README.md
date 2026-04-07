@@ -2,7 +2,7 @@
 
 ## Overview
 
-A **2-hour** hands-on workshop on GitHub Actions, starting from CI/CD fundamentals and progressively covering workflow authoring, Go project CI pipelines, PR automation, release automation, and cloud deployment. By the end, you'll be able to integrate CI/CD into real-world projects.
+A **2-hour** hands-on workshop on GitHub Actions, starting from CI/CD fundamentals and progressively covering workflow authoring, Go project CI pipelines, and cloud deployment. By the end, you'll be able to integrate CI/CD into real-world projects.
 
 ## Target Audience
 
@@ -24,12 +24,9 @@ A **2-hour** hands-on workshop on GitHub Actions, starting from CI/CD fundamenta
 | Chapter | Topic | Duration |
 |---------|-------|----------|
 | 01 | CI/CD Concepts | 10 min |
-| 02 | GitHub Actions Fundamentals | 15 min |
-| 03 | Hands-on: Your First Workflow | 15 min |
-| 04 | Go Project CI Pipeline | 20 min |
-| 05 | PR Check Automation | 15 min |
-| 06 | Release Automation | 20 min |
-| 07 | Deploy to Cloud | 15 min |
+| 02 | GitHub Actions Fundamentals | 30 min |
+| 03 | Go Project CI Pipeline | 25 min |
+| 04 | Deploy to Cloud | 15 min |
 | -- | Wrap-up & Q&A | 10 min |
 
 > **Total: 2 hours (120 minutes)**
@@ -42,10 +39,8 @@ cicd/
 ├── README.zh-TW.md                    # Chinese version
 ├── 01-cicd-intro.md                   # CI/CD concepts
 ├── 02-github-actions-basics.md        # GitHub Actions fundamentals + hands-on
-├── 02-reference.md                    # GitHub Actions reference (Events, Actions, Context, etc.)
 ├── 03-go-ci-pipeline.md               # Go CI pipeline
-├── 04-release-automation.md           # Release automation
-├── 05-deployment.md                   # Cloud deployment
+├── 04-deployment.md                   # Cloud deployment
 ├── examples/                          # Example code
 │   └── sample-app/                    # Sample Go application
 │       ├── main.go                    # Entry point
@@ -54,9 +49,8 @@ cicd/
 │       ├── go.mod                     # Go module definition
 │       └── Dockerfile                 # Docker image definition
 └── exercises/                         # Exercises
-    ├── exercise-01-basics.md          # Chapters 01-03
-    ├── exercise-02-ci-pipeline.md     # Chapters 04-05
-    └── exercise-03-advanced.md        # Chapters 06-07
+    ├── 01-basics.md                   # Chapter 02
+    └── 02-ci-pipeline.md              # Chapter 03
 ```
 
 ## Sample Application

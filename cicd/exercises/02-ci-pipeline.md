@@ -1,20 +1,105 @@
 # 練習二：CI Pipeline 實戰練習
 
-> **難度：** 中級 | **對應章節：** 04-Go 專案 CI Pipeline、05-PR 檢查自動化
+> **難度：** 中級 | **對應章節：** 03-Go 專案 CI Pipeline
 
 ---
 
 ## 目錄
 
-- [練習 2-1：擴充 CI Pipeline](#練習-2-1擴充-ci-pipeline)
-- [練習 2-2：Matrix 策略練習](#練習-2-2matrix-策略練習)
-- [練習 2-3：PR 檢查練習](#練習-2-3pr-檢查練習)
-- [練習 2-4：Coverage 門檻挑戰](#練習-2-4coverage-門檻挑戰)
+- [練習 2-1：Multi-Job 暖身](#練習-2-1multi-job-暖身)
+- [練習 2-2：擴充 CI Pipeline](#練習-2-2擴充-ci-pipeline)
+- [練習 2-3：Matrix 策略練習](#練習-2-3matrix-策略練習)
+- [練習 2-4：PR 檢查練習](#練習-2-4pr-檢查練習)
+- [練習 2-5：Coverage 門檻挑戰](#練習-2-5coverage-門檻挑戰)
 - [延伸思考](#延伸思考)
 
 ---
 
-## 練習 2-1：擴充 CI Pipeline
+## 練習 2-1：Multi-Job 暖身
+
+### 目標
+
+在動手擴充 `ci.yml` 之前，先單獨練一次 `needs`——建立一個多 job 的 workflow，把「平行 + 合流」的依賴關係跑一遍，建立對 job DAG 的直覺。
+
+### 要求
+
+1. 建立一個新的 workflow 檔案 `.github/workflows/multi-job.yml`
+2. **Job `info`**：印出 repository 名稱、branch、commit SHA（使用 `${{ github.xxx }}` context）
+3. **Job `env-check`**：印出系統資訊（`uname -s`、`uname -m`、`date`）
+4. **Job `summary`**：`needs: [info, env-check]`，在前兩個 job 都完成後執行，印出 `"All checks passed"`
+5. 確認在 Actions 頁面上，`info` 和 `env-check` 是 **平行執行**，`summary` 在兩者都完成後才開始
+
+### 提示
+
+- 沒有 `needs` 的 job 會平行執行
+- `needs: [job-a, job-b]` 可以一次等多個 job 完成
+- 如果任何一個被依賴的 job 失敗，後續 job 預設不會執行
+
+### 預期結果
+
+在 GitHub Actions 頁面看到的依賴圖會長這樣：
+
+```
+info      ──┐
+            ├──▶ summary
+env-check ──┘
+```
+
+這和 03 章介紹的 `lint` + `test` → `build` 是同一種模式。
+
+<details>
+<summary>點擊查看答案</summary>
+
+```yaml
+name: Multi Job Workflow
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  info:
+    name: Repo Info
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show GitHub context
+        run: |
+          echo "Repository: ${{ github.repository }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Triggered by: ${{ github.actor }}"
+
+  env-check:
+    name: Environment Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Show system info
+        run: |
+          echo "OS: $(uname -s)"
+          echo "Architecture: $(uname -m)"
+          echo "Current Time: $(date)"
+
+  summary:
+    name: Summary
+    needs: [info, env-check]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "All checks passed"
+```
+
+**重點說明：**
+
+- `info` 和 `env-check` 都沒設 `needs`，所以會 **平行** 開始跑
+- `summary` 用 `needs: [info, env-check]` 等兩個都成功才執行
+- 如果其中一個失敗，`summary` 預設不會執行（可以用 `if: always()` 覆蓋這個行為）
+- 這正是 03 章 `ci.yml` 裡 `lint` + `test` → `build` 的 DAG 模式，接下來的練習 2-2 就會直接擴充這支 pipeline
+
+</details>
+
+---
+
+## 練習 2-2：擴充 CI Pipeline
 
 ### 目標
 
@@ -115,7 +200,7 @@ jobs:
         with:
           go-version: '1.24'
       - name: Build binary
-        run: go build -o bin/app ./...
+        run: go build -o bin/app .
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -134,18 +219,20 @@ jobs:
 
 ---
 
-## 練習 2-2：Matrix 策略練習
+## 練習 2-3：Matrix 策略練習
 
 ### 目標
 
 使用 **matrix strategy** 同時在多個 Go 版本和作業系統上執行測試，確保程式碼的跨環境相容性。
 
+> **提示**：matrix 的完整語法請參考 [GitHub Actions 參考手冊](../02-reference.md)，主教材沒有展開這部分。
+
 ### 要求
 
 1. 修改（或建立新的）workflow，在 test job 中使用 matrix strategy
-2. 測試 **Go 1.23** 和 **Go 1.24** 兩個版本
+2. 測試 **Go 1.24** 和 **Go 1.25** 兩個版本（sample-app 的 `go.mod` 需要 Go 1.24+）
 3. 測試 **ubuntu-latest** 和 **macos-latest** 兩個作業系統
-4. 使用 `include` 額外加入一個 **Go 1.24 + windows-latest** 的組合
+4. 使用 `include` 額外加入一個 **Go 1.25 + windows-latest** 的組合
 5. 在測試步驟中印出目前的 **Go 版本** 和 **作業系統**
 
 ### 提示
@@ -162,11 +249,11 @@ jobs:
 
 | Job | Go Version | OS |
 |-----|-----------|-----|
-| Test (Go 1.23, ubuntu-latest) | 1.23 | ubuntu-latest |
-| Test (Go 1.23, macos-latest) | 1.23 | macos-latest |
 | Test (Go 1.24, ubuntu-latest) | 1.24 | ubuntu-latest |
 | Test (Go 1.24, macos-latest) | 1.24 | macos-latest |
-| Test (Go 1.24, windows-latest) | 1.24 | windows-latest |
+| Test (Go 1.25, ubuntu-latest) | 1.25 | ubuntu-latest |
+| Test (Go 1.25, macos-latest) | 1.25 | macos-latest |
+| Test (Go 1.25, windows-latest) | 1.25 | windows-latest |
 
 <details>
 <summary>點擊查看答案</summary>
@@ -186,10 +273,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        go-version: ['1.23', '1.24']
+        go-version: ['1.24', '1.25']
         os: [ubuntu-latest, macos-latest]
         include:
-          - go-version: '1.24'
+          - go-version: '1.25'
             os: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -211,15 +298,17 @@ jobs:
 **重點說明：**
 
 - `fail-fast: false` 設定讓所有 matrix job 都會執行完畢，即使其中一個失敗。這樣你可以看到完整的測試結果，知道是哪些環境有問題。
-- `include` 不會覆蓋原本的組合，而是**額外增加**一個 Go 1.24 + windows-latest 的組合。
+- `include` 不會覆蓋原本的組合，而是**額外增加**一個 Go 1.25 + windows-latest 的組合。
 - 如果某些環境的測試會失敗（例如路徑分隔符在 Windows 上不同），你可以用 `exclude` 排除特定組合。
 - job 名稱中使用 `${{ matrix.go-version }}` 和 `${{ matrix.os }}` 讓每個 job 的名稱都不一樣，方便辨識。
+- **版本一定要加引號**：YAML 會把 `1.20` 解析成浮點數 `1.2`，結果你以為指定了 Go 1.20，實際下載的是 1.2。永遠用 `'1.24'` 這種字串格式。
+- **Runner 計價注意**：在 GitHub 免費額度裡，macOS Runner 是 Linux 的 10 倍計價、Windows 是 2 倍。真實專案如果不需要真的測那些平台，就不要隨便加進 matrix。
 
 </details>
 
 ---
 
-## 練習 2-3：PR 檢查練習
+## 練習 2-4：PR 檢查練習
 
 ### 目標
 
@@ -246,16 +335,15 @@ git checkout -b feature/add-info-endpoint
 
 #### Step 2：新增 `/info` endpoint
 
-在 `handler.go` 中新增一個 handler 函式：
+在 `handler.go` 中新增一個 handler 函式（注意維持與既有 handler 相同的命名風格與 method 路由風格）：
 
 ```go
-// InfoHandler returns application metadata.
-func InfoHandler(w http.ResponseWriter, r *http.Request) {
+// handleInfo returns application metadata.
+func handleInfo(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Content-Type", "application/json")
     json.NewEncoder(w).Encode(map[string]string{
-        "app":         "sample-app",
-        "version":     version,
-        "description": "A simple Go HTTP API server for GitHub Actions workshop",
+        "app":     "sample-app",
+        "version": version,
     })
 }
 ```
@@ -263,7 +351,7 @@ func InfoHandler(w http.ResponseWriter, r *http.Request) {
 然後在 `main.go` 中註冊這個 handler：
 
 ```go
-mux.HandleFunc("/info", InfoHandler)
+mux.HandleFunc("GET /info", handleInfo)
 ```
 
 #### Step 3：撰寫測試
@@ -271,10 +359,10 @@ mux.HandleFunc("/info", InfoHandler)
 在 `handler_test.go` 中新增測試：
 
 ```go
-func TestInfoHandler(t *testing.T) {
+func TestHandleInfo(t *testing.T) {
     req := httptest.NewRequest(http.MethodGet, "/info", nil)
     w := httptest.NewRecorder()
-    InfoHandler(w, req)
+    handleInfo(w, req)
 
     if w.Code != http.StatusOK {
         t.Errorf("expected status 200, got %d", w.Code)
@@ -295,8 +383,8 @@ func TestInfoHandler(t *testing.T) {
 #### Step 4：在本地驗證
 
 ```bash
-# Run tests locally
-go test -v ./...
+# Run tests locally (same flags as CI)
+go test -v -race ./...
 
 # Run go vet
 go vet ./...
@@ -335,7 +423,7 @@ git push origin feature/add-info-endpoint
 
 ---
 
-## 練習 2-4：Coverage 門檻挑戰
+## 練習 2-5：Coverage 門檻挑戰
 
 ### 目標
 
@@ -364,29 +452,9 @@ git push origin feature/add-info-endpoint
 <details>
 <summary>點擊查看答案</summary>
 
+> 為了聚焦，以下只展示 `test` job 的改動。`lint` 和 `build` job 維持 2-2 的結果即可——也就是 `test` job 前面的 `go vet` / `go mod verify` / `gofmt` 三個檢查步驟都保留。
+
 ```yaml
-name: Go CI
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-      - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: latest
-
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -396,11 +464,28 @@ jobs:
         with:
           go-version: '1.24'
 
+      # ... (2-2 加的 go vet / go mod verify / gofmt 檢查)
+
       - name: Run tests with coverage
         run: go test -v -race -coverprofile=coverage.out ./...
 
       - name: Show coverage summary
         run: go tool cover -func=coverage.out
+
+      # Generate HTML report BEFORE the threshold check, so it's always
+      # available in the artifact even when coverage fails.
+      - name: Generate HTML coverage report
+        run: go tool cover -html=coverage.out -o coverage.html
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-reports
+          path: |
+            coverage.out
+            coverage.html
+          retention-days: 14
 
       - name: Check coverage threshold
         run: |
@@ -418,36 +503,6 @@ jobs:
             echo "::error::Coverage is below threshold! (${COVERAGE}% < ${THRESHOLD}%)"
             exit 1
           fi
-
-      - name: Generate HTML coverage report
-        run: go tool cover -html=coverage.out -o coverage.html
-
-      - name: Upload coverage reports
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-reports
-          path: |
-            coverage.out
-            coverage.html
-          retention-days: 14
-
-  build:
-    name: Build
-    needs: [lint, test]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-      - name: Build binary
-        run: go build -o bin/app ./...
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-binary
-          path: bin/app
 ```
 
 **重點說明：**
@@ -459,7 +514,8 @@ jobs:
   4. `sed 's/%//'` 去掉百分號（得到 `85.7`）
 - `awk '{print ($1 >= $2)}'` 用來做浮點數比較，因為 shell 原生不支援浮點數比較。
 - `::error::` 是 GitHub Actions 的特殊語法，會在 workflow summary 中顯示一個紅色的錯誤訊息。
-- `if: always()` 確保即使覆蓋率檢查失敗，artifact 仍然會被上傳（方便查看哪些程式碼沒有被測試到）。
+- **步驟順序很重要**：Generate HTML 和 Upload 要放在 Check threshold **之前**。因為 threshold 檢查失敗時會 `exit 1`，後面的 step 預設不會執行——如果 HTML 放在後面，低於門檻時 artifact 就沒有 HTML 報告，正好是你最需要它的時候。
+- `if: always()` 確保即使後面的 threshold check 失敗，artifact 仍然會被上傳。
 - `retention-days: 14` 設定 artifact 保留 14 天。
 
 </details>
@@ -480,4 +536,4 @@ jobs:
 
 ---
 
-[← 練習一：GitHub Actions 基礎練習](exercise-01-basics.md) ｜ [練習三：進階練習 →](exercise-03-advanced.md)
+[← 練習一：GitHub Actions 基礎練習](01-basics.md) ｜ [回到教材目錄 →](../README.md)

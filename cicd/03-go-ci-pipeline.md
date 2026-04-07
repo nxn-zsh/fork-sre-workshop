@@ -1,18 +1,13 @@
 # 03 — Go 專案 CI Pipeline
 
-Ocean 成功跑完第一個 Hello World workflow 後信心大增。Andrew 看到後問他：「那你能幫我的 Go 專案也設一個自動化測試嗎？每次 push 完都要手動跑 `go test`，我已經受夠了。」Ocean 二話不說就接下了這個挑戰。
+Ocean 成功跑完第一個 Hello World workflow 後信心大增。Andrew 看到後問他：「那你能幫我的 Go 專案也設一個自動化測試嗎？每次 push 完都要手動跑 `go test`，我已經受夠了。」Ocean 想了想，決定動手試試。
 
-## 目錄
+## Table of Contents
 
 - [學習目標](#學習目標)
 - [範例專案介紹](#範例專案介紹)
 - [完整 CI Workflow](#完整-ci-workflow)
 - [逐段解說](#逐段解說)
-- [Job 依賴關係圖](#job-依賴關係圖)
-- [Caching 快取](#caching-快取)
-- [Matrix Strategy](#matrix-strategy)
-- [Artifacts 深入](#artifacts-深入)
-- [實用技巧](#實用技巧)
 - [PR 觸發的 CI](#pr-觸發的-ci)
 - [常見問題排解](#常見問題排解)
 - [小結與練習題](#小結與練習題)
@@ -24,19 +19,16 @@ Ocean 成功跑完第一個 Hello World workflow 後信心大增。Andrew 看到
 
 - 為 Go 專案建立一套包含 **lint、test、build** 的完整 CI pipeline
 - 理解 **job 之間的依賴關係** 以及平行與序列執行的差異
-- 使用 **caching** 加速 CI 執行速度
-- 使用 **matrix strategy** 同時在多個環境中測試
-- 使用 **artifacts** 在 job 之間傳遞檔案
+- 知道如何用 **artifacts** 在 job 之間傳遞檔案
+- 理解 `on: push` 和 `on: pull_request` 的差異
 
 
 ## 範例專案介紹
 
-### 專案結構
-
-本課程使用一個簡單的 Go HTTP API 伺服器作為範例專案，它的結構如下：
+本章使用一個簡單的 Go HTTP API 伺服器作為範例，放在 `cicd/examples/sample-app/`：
 
 ```
-examples/sample-app/
+cicd/examples/sample-app/
 ├── main.go            # HTTP server entry point
 ├── handler.go         # HTTP handler functions
 ├── handler_test.go    # Unit tests
@@ -45,127 +37,43 @@ examples/sample-app/
 └── .golangci.yml      # golangci-lint configuration
 ```
 
-### 各檔案的功能
+它提供三個 endpoint：
 
-#### `main.go` — 主程式進入點
-
-這是伺服器的啟動點，負責設定路由並啟動 HTTP 伺服器：
-
-```go
-package main
-
-import (
-    "log"
-    "net/http"
-)
-
-func main() {
-    mux := http.NewServeMux()
-    mux.HandleFunc("/", HomeHandler)
-    mux.HandleFunc("/health", HealthHandler)
-    mux.HandleFunc("/version", VersionHandler)
-
-    log.Println("Server starting on :8080")
-    log.Fatal(http.ListenAndServe(":8080", mux))
-}
-```
-
-#### `handler.go` — Handler 函式
-
-定義了三個 API endpoint 的處理邏輯：
-
-```go
-package main
-
-import (
-    "encoding/json"
-    "net/http"
-)
-
-// HomeHandler returns a welcome message
-func HomeHandler(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{
-        "message": "Hello, World!",
-    })
-}
-
-// HealthHandler returns the health status
-func HealthHandler(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{
-        "status": "ok",
-    })
-}
-
-// VersionHandler returns the application version
-func VersionHandler(w http.ResponseWriter, r *http.Request) {
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(map[string]string{
-        "version": "1.0.0",
-    })
-}
-```
-
-#### 三個 Endpoint 的功能
-
-| Endpoint | HTTP Method | 功能 | 回傳範例 |
-|----------|-------------|------|---------|
+| Endpoint | Method | 功能 | 回傳範例 |
+|----------|--------|------|---------|
 | `/` | GET | 首頁歡迎訊息 | `{"message": "Hello, World!"}` |
 | `/health` | GET | 健康檢查 | `{"status": "ok"}` |
 | `/version` | GET | 版本資訊 | `{"version": "1.0.0"}` |
 
-#### `handler_test.go` — 單元測試
-
-使用 Go 標準函式庫的 `testing` 和 `net/http/httptest` 套件撰寫測試：
-
-```go
-package main
-
-import (
-    "encoding/json"
-    "net/http"
-    "net/http/httptest"
-    "testing"
-)
-
-func TestHomeHandler(t *testing.T) {
-    req := httptest.NewRequest(http.MethodGet, "/", nil)
-    w := httptest.NewRecorder()
-    HomeHandler(w, req)
-
-    if w.Code != http.StatusOK {
-        t.Errorf("expected status 200, got %d", w.Code)
-    }
-
-    var result map[string]string
-    if err := json.NewDecoder(w.Body).Decode(&result); err != nil {
-        t.Fatalf("failed to decode response: %v", err)
-    }
-    if result["message"] != "Hello, World!" {
-        t.Errorf("expected message 'Hello, World!', got '%s'", result["message"])
-    }
-}
-```
+並在 `handler_test.go` 中用 Go 標準函式庫的 `testing` 和 `net/http/httptest` 寫了單元測試。程式碼細節可以直接打開 `cicd/examples/sample-app/` 查看，這章的重點是幫它建立 CI pipeline。
 
 ## 完整 CI Workflow
 
-在上一章的 `hello.yml` 裡，每個 step 都是用 `run` 來執行 shell 指令。但在真正的 CI workflow 裡，很多步驟是大家都要做的（例如把程式碼 checkout 下來、安裝 Go 環境），這些不用自己從頭寫，可以用 `uses` 來引用別人寫好的 **Action**：
+接下來我們要為範例專案建立一個完整的 Go CI workflow。這個 workflow 會在每次 `push` 或 `pull_request` 到 `main` 時自動觸發，並依序完成三件事：
 
-```yaml
-# run — execute a shell command yourself
-- run: go test ./...
+1. **Lint**：用 `golangci-lint` 檢查程式碼風格與潛在問題
+2. **Test**：執行單元測試，產生覆蓋率報告並上傳成 artifact
+3. **Build**：在 lint 與 test 都通過後，才編譯出 binary 並上傳
 
-# uses — use a pre-built Action from the community
-- uses: actions/checkout@v4
-- uses: actions/setup-go@v5
-  with:
-    go-version: '1.24'
+其中 `lint` 和 `test` 會平行執行以節省時間，`build` 則透過 `needs` 等待前兩個 job 成功後才啟動。整個流程會是這樣：
+
+```
+        ┌──────┐
+        │ push │
+        └───┬──┘
+     ┌──────┴──────┐
+     ▼             ▼
+  ┌──────┐     ┌──────┐
+  │ lint │     │ test │
+  └───┬──┘     └───┬──┘
+     └──────┬──────┘
+            ▼
+        ┌───────┐
+        │ build │
+        └───────┘
 ```
 
-`uses` 的格式是 `{owner}/{repo}@{version}`，例如 `actions/checkout@v4` 就是 GitHub 官方提供的 checkout Action 第 4 版。建議固定版本號（用 `@v4` 而非 `@main`），避免未預期的變更。更多常用的 Actions 可以參考 [參考手冊](02-reference.md#常見-actions)。
-
-以下是我們要為範例專案建立的完整 CI workflow。請在 `.github/workflows/ci.yml` 中建立這個檔案：
+請在你的專案中建立 `.github/workflows/ci.yml`：
 
 ```yaml
 name: Go CI
@@ -226,6 +134,8 @@ jobs:
           path: bin/app
 ```
 
+> 完整檔案也可以在 `cicd/examples/sample-app/.github/workflows/ci.yml` 找到，直接複製過去即可。
+
 ## 逐段解說
 
 ### 觸發條件
@@ -238,15 +148,7 @@ on:
     branches: [main]
 ```
 
-這個 workflow 在兩種情況下會觸發：
-
-1. **Push 到 `main` 分支**：當程式碼直接 push 到 `main` 時執行
-2. **Pull Request 指向 `main` 分支**：當有 PR 要合併進 `main` 時執行
-
-為什麼兩種都要？
-
-- **PR 觸發**：在合併前就檢查程式碼品質，確保不會有問題的程式碼進入 `main`
-- **Push 觸發**：作為最後的安全網，確認合併後的程式碼仍然正常
+這個 workflow 會在 push 到 `main` 或有 PR 指向 `main` 時執行。`pull_request` 在合併前先檢查一次，`push` 作為合併後的最後防線。兩者的細節差異與進階設定（activity types、permissions、fork 限制）見下方「[PR 觸發的 CI](#pr-觸發的-ci)」。
 
 
 ### Lint Job — 程式碼品質檢查
@@ -266,15 +168,9 @@ lint:
         version: latest
 ```
 
-#### 什麼是 Linter？
+**Linter** 是一種靜態分析工具，它不會執行你的程式碼，而是檢查程式碼的風格、潛在錯誤和不良寫法——就像文章的文法檢查器，但針對的是程式碼。[golangci-lint](https://golangci-lint.run/) 是 Go 生態系中最受歡迎的 linter，它整合了數十個 linter（如 `govet`、`errcheck`、`staticcheck` 等），只需要一個指令就能執行所有檢查。
 
-**Linter** 是一種靜態分析工具，它不會執行你的程式碼，而是 **檢查程式碼的風格、潛在錯誤和不良寫法**。就像文章的拼字檢查器，但針對的是程式碼。
-
-#### 什麼是 golangci-lint？
-
-[golangci-lint](https://golangci-lint.run/) 是 Go 生態系中最受歡迎的 linter 工具，它整合了數十個 linter（如 `govet`、`errcheck`、`staticcheck` 等），只需要一個指令就能執行所有檢查。
-
-#### 各步驟說明
+這個 job 裡每個 step 做的事：
 
 | 步驟 | 做什麼 | 為什麼需要 |
 |------|--------|-----------|
@@ -282,13 +178,7 @@ lint:
 | `actions/setup-go@v5` | 安裝 Go 1.24 | golangci-lint 需要 Go 環境 |
 | `golangci-lint-action@v6` | 執行 golangci-lint | 檢查程式碼品質 |
 
-#### golangci-lint-action 的使用
-
-[golangci/golangci-lint-action](https://github.com/golangci/golangci-lint-action) 是一個社群維護的 Action，它會自動：
-
-- 下載並安裝 golangci-lint
-- 快取 golangci-lint 的執行結果，加速後續 run
-- 如果 repository 中有 `.golangci.yml` 設定檔，自動套用其中的設定
+其中 [golangci/golangci-lint-action](https://github.com/golangci/golangci-lint-action) 是社群維護的 Action，會自動下載並安裝 golangci-lint、快取執行結果，並在偵測到 `.golangci.yml` 時自動套用設定。
 
 
 ### Test Job — 自動化測試
@@ -348,10 +238,26 @@ total:                              (statements)    93.3%
     path: coverage.out
 ```
 
-**Artifact** 是 workflow 執行過程中產生的檔案，上傳後可以：
+這是我們第一次用到 **artifact**。
 
-- 在 GitHub Actions 頁面 **下載查看**
-- 在後續的 job 中 **下載使用**（我們在 Build Job 會看到類似的用法）
+不同 job 在不同的 Runner 上執行，檔案系統互不相通，所以 job 之間如果要傳檔案就要靠 artifact。`upload-artifact` 把檔案上傳到 GitHub，後面的 job 可以用 `download-artifact` 取回，或是在 Actions 頁面手動下載。
+
+```yaml
+# Upload (in one job)
+- uses: actions/upload-artifact@v4
+  with:
+    name: coverage-report      # Artifact name
+    path: coverage.out         # File or directory to upload
+    retention-days: 7          # How long to keep (default: 90 days)
+
+# Download (in another job)
+- uses: actions/download-artifact@v4
+  with:
+    name: coverage-report      # Must match the upload name
+    path: ./downloaded/        # Where to save
+```
+
+Artifact 預設保存 90 天，可以用 `retention-days` 自訂（最短 1 天，最長 90 天，Pro/Team 方案最長 400 天）。
 
 
 ### Build Job — 建置可執行檔
@@ -381,7 +287,7 @@ build:
 needs: [lint, test]
 ```
 
-`needs` 是這個 workflow 中最重要的概念之一。它定義了 **job 之間的執行順序**：
+`needs` 用來定義 **job 之間的執行順序**：
 
 - **沒有 `needs`** 的 job（如 `lint` 和 `test`）會 **平行執行**，同時開始
 - **有 `needs`** 的 job（如 `build`）會 **等待** 指定的 job 全部完成後才開始
@@ -397,374 +303,41 @@ needs: [lint, test]
 2. **明確的失敗訊號**：開發者知道問題出在 lint 或 test，而不是 build
 3. **邏輯上的正確性**：只有品質通過檢查的程式碼才值得建置
 
-#### Artifact 的用途
+Build 產出的 binary 同樣用 `upload-artifact` 上傳，後續的 deploy job 或 release workflow 就可以直接取用這份 binary，不用重新編譯。
 
-Build Job 產出的 binary 透過 `upload-artifact` 上傳後，可以用於：
-
-- **手動下載測試**：在 Actions 頁面下載 binary 來手動驗證
-- **後續 job 使用**：例如後面的 deploy job 可以下載這個 binary 來部署
-- **Release 發佈**：在 Release workflow 中將 binary 附加到 GitHub Release
-
-
-## Job 依賴關係圖
-
-這三個 job 的執行流程如下：
-
-```
-┌──────┐     ┌──────┐
-│ Lint │     │ Test │
-└──┬───┘     └──┬───┘
-   │            │
-   │  (平行執行) │
-   │            │
-   └─────┬──────┘
-         │
-         │ (等待兩者都完成)
-         │
-   ┌─────▼─────┐
-   │   Build   │
-   └───────────┘
-```
-
-- **Lint** 和 **Test** 同時開始，平行執行（因為它們之間沒有依賴關係）
-- **Build** 會等到 Lint 和 Test **都通過** 後才開始
-- 如果 Lint 或 Test 任何一個失敗，Build **不會執行**
-
-## Caching 快取
-
-### 為什麼需要快取？
-
-每次 CI 執行時，Runner 都是一個 **全新的環境**。這意味著每次都要重新下載所有的依賴套件（如 Go modules）。對於大型專案來說，這可能需要好幾分鐘。
-
-**快取** 可以把這些下載過的依賴儲存起來，下次執行時直接取用，大幅 **縮短 CI 的執行時間**。
-
-### actions/setup-go 內建的快取
-
-好消息是 `actions/setup-go@v5` **已經內建了快取功能**！當它偵測到 `go.sum` 檔案存在時，會自動快取 Go module 的依賴。
-
-```yaml
-- uses: actions/setup-go@v5
-  with:
-    go-version: '1.24'
-    # Cache is enabled by default when go.sum exists
-```
-
-你不需要額外設定任何東西，`setup-go` 會自動：
-
-1. 計算 `go.sum` 的 hash 值作為 cache key
-2. 第一次執行時儲存快取
-3. 後續執行時，如果 `go.sum` 沒有變化，直接使用快取
-
-### 手動使用 actions/cache
-
-如果你需要更精細的快取控制（例如快取其他工具或自訂路徑），可以手動使用 `actions/cache`：
-
-```yaml
-- name: Cache Go modules
-  uses: actions/cache@v4
-  with:
-    path: |
-      ~/go/pkg/mod
-      ~/.cache/go-build
-    key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-    restore-keys: |
-      ${{ runner.os }}-go-
-
-- uses: actions/setup-go@v5
-  with:
-    go-version: '1.24'
-    cache: false  # Disable built-in cache since we manage it manually
-```
-
-#### Cache Key 的設計
-
-| 部分 | 說明 |
-|------|------|
-| `${{ runner.os }}` | 作業系統，確保不同 OS 的快取不會混用 |
-| `go` | 用來標識這是 Go 的快取 |
-| `${{ hashFiles('**/go.sum') }}` | 根據 `go.sum` 的內容產生 hash，依賴有變就更新快取 |
-
-`restore-keys` 是備用 key，如果完全匹配的快取不存在，會嘗試用前綴匹配找到最近的快取。這比從零開始下載好很多。
-
-### 快取效果
-
-| 情境 | 下載 Go modules 時間 | 說明 |
-|------|---------------------|------|
-| **無快取（第一次）** | ~30–60 秒 | 需要從網路下載所有依賴 |
-| **有快取（後續執行）** | ~2–5 秒 | 直接從快取還原 |
-
-## Matrix Strategy
-
-### 什麼是 Matrix？
-
-**Matrix strategy** 讓你可以用一組變數的 **所有組合** 自動產生多個 job。最常見的用途是 **同時測試多個版本或多個作業系統**。
-
-### 範例：多 Go 版本 + 多作業系統測試
-
-```yaml
-jobs:
-  test:
-    name: Test (Go ${{ matrix.go-version }}, ${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        go-version: ['1.23', '1.24']
-        os: [ubuntu-latest, macos-latest]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: ${{ matrix.go-version }}
-      - name: Run tests
-        run: go test -v -race ./...
-```
-
-### Matrix 產生的 Job 組合
-
-上面的設定會自動產生 **4 個 job**（2 個 Go 版本 x 2 個作業系統）：
-
-| Job | Go Version | OS |
-|-----|-----------|-----|
-| Test (Go 1.23, ubuntu-latest) | 1.23 | ubuntu-latest |
-| Test (Go 1.23, macos-latest) | 1.23 | macos-latest |
-| Test (Go 1.24, ubuntu-latest) | 1.24 | ubuntu-latest |
-| Test (Go 1.24, macos-latest) | 1.24 | macos-latest |
-
-這 4 個 job 會 **同時平行執行**，大幅縮短測試時間。
-
-### 進階用法：fail-fast
-
-```yaml
-strategy:
-  fail-fast: false  # Don't cancel other jobs if one fails
-  matrix:
-    go-version: ['1.23', '1.24']
-    os: [ubuntu-latest, macos-latest]
-```
-
-- **`fail-fast: true`**（預設）：一旦任何一個 matrix job 失敗，就 **取消其他所有 matrix job**
-- **`fail-fast: false`**：即使某個 job 失敗，**其他 job 繼續執行**，讓你看到完整的測試結果
-
-### 什麼時候該用 Matrix？
-
-| 適合用 Matrix 的場景 | 不需要 Matrix 的場景 |
-|---------------------|---------------------|
-| 開源函式庫，需要支援多個 Go 版本 | 應用程式，只需要一個目標版本 |
-| 跨平台工具，需要在多個 OS 上測試 | 只部署到 Linux 伺服器 |
-| 需要測試不同資料庫版本的相容性 | 只使用一種資料庫 |
-
-## Artifacts 深入
-
-### Upload vs Download
-
-在 GitHub Actions 中，不同的 job 在 **不同的 Runner** 上執行，它們的檔案系統 **互不相通**。如果你需要在不同 job 之間傳遞檔案，就需要使用 Artifact。
-
-```
-┌──────────────┐                          ┌──────────────┐
-│   Test Job   │                          │  Build Job   │
-│ (Runner A)   │                          │ (Runner B)   │
-│              │                          │              │
-│ coverage.out │──── upload-artifact ────▶│              │
-│              │     (存到 GitHub)         │  binary      │
-└──────────────┘                          └──────────────┘
-```
-
-#### upload-artifact — 上傳 Artifact
-
-```yaml
-- uses: actions/upload-artifact@v4
-  with:
-    name: coverage-report      # Artifact name (for identification)
-    path: coverage.out         # File or directory to upload
-    retention-days: 7          # How long to keep (default: 90 days)
-```
-
-#### download-artifact — 下載 Artifact
-
-```yaml
-- uses: actions/download-artifact@v4
-  with:
-    name: coverage-report      # Must match the upload name
-    path: ./downloaded/        # Where to save the downloaded files
-```
-
-### Artifact 的保存期限
-
-| 方案 | 預設保存期限 | 最長保存期限 |
-|------|------------|------------|
-| Public Repository | 90 天 | 90 天 |
-| Private Repository (Free) | 90 天 | 90 天 |
-| Private Repository (Pro/Team) | 90 天 | 400 天 |
-
-你可以透過 `retention-days` 參數自訂保存期限（最短 1 天）。
-
-### 在不同 Job 之間傳遞檔案
-
-以下是一個完整的範例，展示如何在 build job 中產生檔案，並在 deploy job 中使用：
-
-```yaml
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-      - name: Build
-        run: go build -o bin/app ./...
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-binary
-          path: bin/app
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Download binary
-        uses: actions/download-artifact@v4
-        with:
-          name: app-binary
-          path: ./bin/
-      - name: Deploy
-        run: |
-          chmod +x ./bin/app
-          echo "Deploying ./bin/app ..."
-          # Actual deployment steps would go here
-```
-
-
-## 實用技巧
-
-### 1. 使用 `if` 條件控制 Step 執行
-
-你可以用 `if` 來決定某個 step 是否要執行：
-
-```yaml
-steps:
-  - name: Run only on main branch
-    if: github.ref == 'refs/heads/main'
-    run: echo "This runs only on main"
-
-  - name: Run only on pull requests
-    if: github.event_name == 'pull_request'
-    run: echo "This runs only on PRs"
-
-  - name: Run even if previous steps failed
-    if: always()
-    run: echo "This always runs (cleanup, notifications, etc.)"
-
-  - name: Run only if previous steps succeeded
-    if: success()
-    run: echo "Everything is fine!"
-
-  - name: Run only if previous steps failed
-    if: failure()
-    run: echo "Something went wrong! Sending notification..."
-```
-
-常用的條件函式：
-
-| 函式 | 說明 |
-|------|------|
-| `success()` | 前面的步驟都成功時為 true（預設行為） |
-| `failure()` | 前面有任何步驟失敗時為 true |
-| `always()` | 無論成功或失敗，一律執行 |
-| `cancelled()` | workflow 被取消時為 true |
-
-### 2. `continue-on-error` — 容許失敗
-
-有時候你希望某個 step 即使失敗，也不要影響整個 job 的結果：
-
-```yaml
-steps:
-  - name: Optional lint check
-    continue-on-error: true
-    run: golangci-lint run ./...
-
-  - name: This step will still run
-    run: echo "Previous step might have failed, but we continue"
-```
-
-適用場景：
-
-- 非關鍵的 lint 規則檢查
-- 實驗性的測試
-- 通知服務（即使通知失敗也不影響 CI 結果）
-
-### 3. `timeout-minutes` — 設定超時
-
-防止 job 因為無限迴圈或 hang 住而佔用資源：
-
-```yaml
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10  # Kill the job if it runs longer than 10 minutes
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run tests
-        run: go test -v ./...
-```
-
-建議根據你的專案正常 CI 時間的 **2-3 倍** 來設定超時，既不會太短導致誤殺，也不會讓異常的 job 跑太久。
-
-### 4. `concurrency` — 避免重複執行
-
-當你快速 push 多個 commit 時，可能會觸發多個 workflow run。`concurrency` 可以確保同一時間只有一個 run 在執行：
-
-```yaml
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-```
-
-| 參數 | 說明 |
-|------|------|
-| `group` | 同一個 group 的 run 會互斥 |
-| `cancel-in-progress: true` | 新的 run 啟動時，**取消** 正在執行的舊 run |
-
-這在 PR workflow 中特別有用，當你在短時間內推了多個 commit 到 PR，只需要跑 **最新那次** 的 CI 就好，前面的可以取消。
+> **關於快取**：`actions/setup-go@v5` 偵測到 `go.sum` 時會自動快取 Go modules，後續執行只要 `go.sum` 沒變就會直接用快取，不用額外設定。
 
 ## PR 觸發的 CI
 
-前面的 CI workflow 裡我們同時設了 `on: push` 和 `on: pull_request`，這兩個觸發條件的用途不一樣。`push` 是程式碼合併到 `main` 之後跑的，`pull_request` 則是在 PR 階段就先跑一次檢查，確認合併後不會壞掉。
+前面的 CI workflow 同時設了 `on: push` 和 `on: pull_request`，兩者的用途不一樣：
 
-如果你的 workflow 只需要在 PR 階段跑，可以只設 `pull_request`：
+- **`pull_request`**：在 PR 階段就先檢查一次，確認合併後不會壞掉。它會在**模擬合併後的 merge commit** 上執行，能及早發現合併衝突或不相容。
+- **`push`**：合併到 `main` 之後的最後防線，確認分支上的程式碼真的正常。
+
+兩個一起設可以兼顧「合併前預防」和「合併後驗證」。如果你的 workflow 只想在 PR 階段跑，也可以只設 `pull_request`：
 
 ```yaml
 on:
   pull_request:
     branches: [main]
-    types: [opened, synchronize, reopened]
 ```
-
-### PR Workflow 跟 Push Workflow 有什麼不一樣？
-
-| 差異項目 | Push Workflow | PR Workflow |
-|---------|--------------|-------------|
-| 觸發時機 | 程式碼 push 到指定分支 | PR 建立或更新時 |
-| 檢查的程式碼 | push 後的最新 commit | **模擬合併後的結果** |
-| 目的 | 確認分支上的程式碼正確 | 確認合併後不會壞掉 |
-
-一個重要的細節：PR workflow 會在 **merge commit** 上執行，測試的不只是你的 PR 程式碼，而是「你的修改合併進目標分支後的結果」。這樣可以及早發現合併衝突或不相容的問題。
 
 ### `pull_request` 的觸發類型
 
-`pull_request` 事件可以指定多種 activity types：
+`pull_request` 事件可以指定 activity types，控制什麼情況下要重跑 workflow：
 
 | Type | 觸發時機 | 說明 |
 |------|---------|------|
 | `opened` | PR 剛建立時 | 第一次提交 PR |
 | `synchronize` | 有新 commit push 到 PR 時 | 更新程式碼後重新檢查 |
 | `reopened` | 關閉後重新開啟 PR 時 | 重新開啟需要再次檢查 |
-| `ready_for_review` | 從 Draft 變成 Ready 時 | 適合只在正式 review 時才跑的檢查 |
+| `ready_for_review` | 從 Draft 變成 Ready 時 | 只在正式 review 時才跑的檢查 |
+
+預設會包含 `opened`、`synchronize`、`reopened`，多數情況不用自己指定。
 
 ### Permissions 設定
 
-PR workflow 建議明確設定 permissions，遵循最小權限原則：
+PR workflow 建議明確設定 `permissions`，遵循最小權限原則：
 
 ```yaml
 permissions:
@@ -781,13 +354,11 @@ permissions:
 
 ### Fork PR 的安全限制
 
-當有人從 **fork** 的 repository 提交 PR 時，GitHub 有安全限制：
+當有人從 **fork** 的 repository 提交 PR 時，GitHub 會有一些安全限制，避免惡意的 fork PR 竊取你的 secrets 或修改 repository：
 
-- ❌ **無法存取 secrets**：fork PR 的 workflow 無法讀取 repository 的 secrets
-- ❌ **寫入權限受限**：fork PR 的 workflow 預設只有 read 權限
-- ✅ **程式碼檢查仍然可以執行**：lint、test、build 等不需要 secrets 的檢查不受影響
-
-這是為了防止惡意的 fork PR 竊取你的 secrets 或修改你的 repository。
+- **無法存取 secrets**：fork PR 的 workflow 無法讀取 repository 的 secrets
+- **寫入權限受限**：預設只有 read 權限
+- **程式碼檢查仍可執行**：lint、test、build 等不需要 secrets 的檢查不受影響
 
 
 ## 常見問題排解
@@ -806,12 +377,12 @@ permissions:
 
 ### 3. Cache 沒有生效
 
-第一次跑一定沒有 cache。如果後續執行 cache 還是沒命中，檢查 `go.sum` 是否有變動。`setup-go` 用 `go.sum` 的 hash 作為 cache key，只要 `go.sum` 有改動，cache 就會失效。
-
-**排解方式**：在 Actions log 中搜尋 "cache" 關鍵字，查看 cache hit 或 miss 的訊息。
+`setup-go` 用 `go.sum` 的 hash 作為 cache key，只要 `go.sum` 有改動 cache 就會失效。第一次跑也一定沒有 cache。在 Actions log 中搜尋 "cache" 關鍵字可以看到 cache hit 或 miss 的訊息。
 
 
 ## 小結與練習題
+
+這一章你為一個真正的 Go 專案建起了完整的 CI pipeline：用 `golangci-lint` 檢查程式碼、用 `go test -race` 跑單元測試並收集 coverage、再編譯出 binary，並透過 `needs` 讓 lint 和 test 平行執行、build 等前兩者都通過才啟動。你也認識了 `upload-artifact` 如何在 job 之間傳遞產物，並理解 `on: push` 搭配 `on: pull_request` 如何兼顧「合併前預防」與「合併後驗證」。下一章我們會把這支 binary 實際部署到雲端，讓整個 CI/CD 流程完整串起來。
 
 ### 本章重點回顧
 
@@ -819,18 +390,17 @@ permissions:
 - 使用 `needs` 定義 job 之間的依賴關係，`lint` 和 `test` 平行執行，`build` 等它們都通過才執行
 - **golangci-lint** 是 Go 最受歡迎的 linter 工具，可透過 `golangci-lint-action` 在 CI 中使用
 - `go test -v -race -coverprofile=coverage.out ./...` 是標準的 CI 測試指令
-- **Caching** 可以大幅加速 CI，`actions/setup-go` 已內建快取功能
-- **Matrix strategy** 讓你同時在多個版本/平台上測試
-- **Artifacts** 用來在不同 job 之間傳遞檔案
-- PR workflow 用 `on: pull_request` 觸發，會在 **模擬合併後的結果** 上執行檢查
+- **Artifacts** 用來在不同 job 之間傳遞檔案（例如把 binary 從 build job 傳給 deploy job）
+- 同時設 `on: push` 和 `on: pull_request` 可以兼顧「合併前預防」和「合併後驗證」
+
+### 關於 Release 自動化
+
+當專案穩定後，你會希望把某個特定版本「標記」起來發佈給使用者。這就是 **Release** 的概念：用 **Semantic Versioning**（例如 `v1.2.3`，MAJOR 代表破壞性變更、MINOR 代表新功能、PATCH 代表 bug 修正）搭配 **Git Tag** 來標記版本，並透過 `on: push: tags: ['v*']` 觸發一個 release workflow，自動建置產物並建立 GitHub Release。本工作坊不展開細節，有興趣可以查閱 [softprops/action-gh-release](https://github.com/softprops/action-gh-release)。
 
 ### 練習題
 
 完成以下練習來鞏固本章所學：
 
-👉 [練習二：CI Pipeline 實戰練習](exercises/exercise-02-ci-pipeline.md)
+[練習二：CI Pipeline 實戰練習](exercises/02-ci-pipeline.md)
 
-> **接下來，我們將學習如何自動化 Release 流程！**
-
-
-[← 上一章：GitHub Actions 基礎](02-github-actions-basics.md) ｜ [下一章：Release 自動化 →](04-release-automation.md)
+[← 上一章：GitHub Actions 基礎](02-github-actions-basics.md) ｜ [下一章：部署到雲端平台 →](04-deployment.md)

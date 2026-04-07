@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Say Hello
-        run: echo "Hello, GitHub Actions! 🚀"
+        run: echo "Hello, GitHub Actions!"
 
       - name: Show System Info
         run: |
