@@ -45,6 +45,21 @@ cicd/examples/sample-app/
 
 並在 `handler_test.go` 中用 Go 標準函式庫的 `testing` 和 `net/http/httptest` 寫了單元測試。程式碼細節可以直接打開 `cicd/examples/sample-app/` 查看，這章的重點是幫它建立 CI pipeline。
 
+### 在本機跑跑看
+
+在開始建 CI 之前，先把這個服務在自己的電腦上跑起來，確認它可以正常運作：
+
+```bash
+cd cicd/examples/sample-app
+go run .
+```
+
+伺服器會開在 `8080` port。打開瀏覽器到 [http://localhost:8080/](http://localhost:8080/)，應該會看到 `Hello, GitHub Actions!`：
+
+![sample-app 在本機跑起來的畫面](assets/sample-app-running.png)
+
+也可以試試 `/health` 和 `/version` 兩個 endpoint。確認本機可以跑之後，按 `Ctrl+C` 停掉，接下來我們要做的就是讓 CI 自動幫我們驗證這個服務每次改動後還是能正常編譯、測試、運作。
+
 ## 完整 CI Workflow
 
 接下來我們要為範例專案建立一個完整的 Go CI workflow。這個 workflow 會在每次 `push` 或 `pull_request` 到 `main` 時自動觸發，並依序完成三件事：

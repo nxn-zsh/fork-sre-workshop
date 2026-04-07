@@ -50,7 +50,13 @@ mkdir -p .github/workflows
 
 ### 建立 Workflow 檔案
 
-在 `.github/workflows/` 目錄下建立一個名為 `hello.yml` 的檔案（用你熟悉的編輯器打開即可），將以下內容貼入並存檔：
+我們要寫一個 workflow，讓它在每次 push 到 `main` 之後自動執行三件事：
+
+1. 印出一段 hello 訊息
+2. 列出 pipeline 執行環境（也就是 runner）的作業系統資訊，例如 OS 名稱、CPU 架構、預先安裝的 Go / Docker 版本
+3. 列出這次 workflow 觸發時的 GitHub 相關訊息，例如 repo 名稱、分支、commit SHA、誰觸發的、什麼事件觸發的
+
+對應到 GitHub Actions 的寫法大概長這樣：把這三件事各寫成一個 step，全部放在同一個 job 底下。在 `.github/workflows/` 目錄下建立一個名為 `hello.yml` 的檔案（用你熟悉的編輯器打開即可），貼入下面的內容並存檔：
 
 ```yaml
 name: Hello GitHub Actions
@@ -84,7 +90,7 @@ jobs:
           echo "Event: ${{ github.event_name }}"
 ```
 
-> 完整檔案也可以在 `cicd/examples/.github/workflows/hello.yml` 找到，直接複製過去即可。（本章的 demo workflow 不綁定後面的 sample-app，所以放在 `cicd/examples/` 根目錄。）
+每一行的意思我們等一下會在「Workflow 結構元素」一節回頭解釋，現在不用急著看懂。完整檔案也可以在 `cicd/examples/.github/workflows/hello.yml` 找到，直接複製過去也行。
 
 ### Push 到 GitHub
 
@@ -263,9 +269,18 @@ Workflow (.github/workflows/hello.yml)
 
 ### Pipeline 失敗
 
-在實際開發中，CI pipeline 失敗是常態，學會看失敗訊息、知道從哪裡 debug 是 SRE 的基本功。我們接下來要拿一個會失敗的 pipeline 來跑跑看。
+在實際開發中，CI pipeline 失敗是常態，學會看失敗訊息、知道從哪裡 debug 是 SRE 的基本功。我們接下來要再寫一個 workflow，但這次故意讓它失敗，看看失敗時要怎麼追問題。
 
-這個範例會用 `curl` 向 GitHub API 抓 repository 的基本資訊，再用 `jq`（一個命令列 JSON 解析工具）從 JSON 結果裡挑欄位出來印。我們會故意把其中一個欄位名稱寫錯，讓你看到 pipeline 失敗時長什麼樣子、以及要怎麼從 log 找出問題。請在 `.github/workflows/repo-info.yml` 中建立這個檔案：
+這個 workflow 會做四件事：
+
+1. 用 `curl` 向 GitHub API 抓這個 repository 的基本資訊，存成一個 JSON 檔
+2. 從 JSON 裡讀出 repository 完整名稱印出來
+3. 從 JSON 裡讀出 star 數印出來
+4. 從 JSON 裡讀出描述印出來
+
+第 2 ~ 4 步會用到 [`jq`](https://jqlang.github.io/jq/)，它是一個命令列 JSON 解析工具，可以從 JSON 裡用 `.field_name` 的語法挑欄位出來。GitHub-hosted runner 已經預裝了 `jq`，可以直接用。
+
+下面這份 workflow 裡，我們故意把第 3 步的欄位名稱寫錯，讓 pipeline 跑到這一步就會失敗。請在 `.github/workflows/repo-info.yml` 中建立這個檔案：
 
 ```yaml
 name: Repo Info
