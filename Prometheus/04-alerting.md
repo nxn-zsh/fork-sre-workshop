@@ -1,38 +1,36 @@
 # 04 — Alertmanager 告警系統
 
-> **時間：25 分鐘**
-
 ---
 
 ## 目錄
 
-- [學習目標](#學習目標)
-- [Alert 的完整流程](#alert-的完整流程)
-- [Step 1：建立 Alert Rules](#step-1建立-alert-rules)
-  - [Alert Rule 結構解說](#alert-rule-結構解說)
-  - [Severity 等級設計](#severity-等級設計)
-- [Step 2：設定 Alertmanager](#step-2設定-alertmanager)
-  - [Alertmanager 設定檔解說](#alertmanager-設定檔解說)
-  - [Route 路由設計](#route-路由設計)
-- [Step 3：建立 Discord Webhook](#step-3建立-discord-webhook)
-- [Step 4：更新 Docker Compose](#step-4更新-docker-compose)
-- [Step 5：更新 Prometheus 設定](#step-5更新-prometheus-設定)
-- [Step 6：啟動並驗證](#step-6啟動並驗證)
-- [Alert 的三種狀態](#alert-的三種狀態)
-- [常見問題排解](#常見問題排解)
-- [小結與練習題](#小結與練習題)
+- [04 — Alertmanager 告警系統](#04--alertmanager-告警系統)
+  - [目錄](#目錄)
+  - [Alert 的完整流程](#alert-的完整流程)
+  - [Step 1： Alert Rules](#step-1-alert-rules)
+    - [Alert Rule 結構解說](#alert-rule-結構解說)
+    - [Severity 等級設計](#severity-等級設計)
+  - [Step 2：設定 Alertmanager](#step-2設定-alertmanager)
+    - [Alertmanager 設定檔解說](#alertmanager-設定檔解說)
+      - [全域設定](#全域設定)
+      - [Route 路由設計](#route-路由設計)
+      - [`webhook_url_file` 而非 `webhook_url`](#webhook_url_file-而非-webhook_url)
+  - [Step 3：建立 Discord Webhook](#step-3建立-discord-webhook)
+    - [在 Discord 建立 Webhook](#在-discord-建立-webhook)
+    - [把 Webhook 存成檔案](#把-webhook-存成檔案)
+  - [Step 4：啟動並驗證](#step-4啟動並驗證)
+    - [確認 Alert Rules 已載入](#確認-alert-rules-已載入)
+    - [確認 Alertmanager 正常運作](#確認-alertmanager-正常運作)
+    - [確認 Targets](#確認-targets)
+  - [Alert 的三種狀態](#alert-的三種狀態)
+    - [為什麼需要 Pending 狀態？](#為什麼需要-pending-狀態)
+  - [常見問題排解](#常見問題排解)
+    - [1. Alert Rules 沒有載入](#1-alert-rules-沒有載入)
+    - [2. Alertmanager 設定錯誤](#2-alertmanager-設定錯誤)
+  - [小結與練習題](#小結與練習題)
+    - [本章重點回顧](#本章重點回顧)
+    - [練習題](#練習題)
 
----
-
-## 學習目標
-
-完成本章節後，你將能夠：
-
-- 撰寫 Prometheus Alert Rules（告警規則）
-- 部署和設定 Alertmanager
-- 設定 Alertmanager 的 routing 規則
-- 建立 Discord Webhook 來接收告警通知
-- 理解 Alert 從觸發到通知的完整流程
 
 ---
 
@@ -59,80 +57,80 @@ Step 5: 等過了 group_wait 時間，Alertmanager 送出通知
 Step 6: 你在 Discord 收到告警訊息 🚨
 ```
 
-> 💡 **講師提示：** 先在白板上畫出這個流程，讓學生有全局概念。後面的步驟就是一步一步把這個流程建起來。
-
 ---
 
-## Step 1：建立 Alert Rules
+## Step 1： Alert Rules
 
 Alert rules 告訴 Prometheus「什麼情況下要發出警報」。
 
-在 `Prometheus/examples/monitoring-stack/config/` 下建立 alert rules 檔案：
-
-```bash
-mkdir -p Prometheus/examples/monitoring-stack/config/rules
-```
-
-建立 `config/rules/alerts.yml`：
+ `Prometheus/examples/prometheus/alert_rules.yml`
 
 ```yaml
 groups:
-  - name: node-exporter-alerts
+  - name: alert_manager_rules
     rules:
       # Alert 1：Target 掛掉
-      - alert: TargetDown
+      - alert: InstanceDown
         expr: up == 0
-        for: 1m
+        for: 5m
         labels:
           severity: critical
+          component: alertmanager
         annotations:
-          summary: "{{ $labels.instance }} 已無法連線"
-          description: "Target {{ $labels.instance }} (job: {{ $labels.job }}) 已經超過 1 分鐘沒有回應 scrape 請求。"
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes."
 
-      # Alert 2：記憶體使用率過高
-      - alert: HighMemoryUsage
-        expr: (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 > 80
-        for: 5m
+  - name: node_exporter_alerts
+    interval: 30s
+    rules:
+      # Alert 2：記憶體快用完
+      - alert: HostOutOfMemory
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100) < 10
+        for: 2m
         labels:
-          severity: warning
+          severity: critical
+          component: node_exporter
         annotations:
-          summary: "記憶體使用率超過 80%"
-          description: "Instance {{ $labels.instance }} 的記憶體使用率已達 {{ $value | printf \"%.1f\" }}%，持續超過 5 分鐘。"
+          summary: "Host out of memory (instance {{ $labels.instance }})"
+          description: "Node memory is filling up (< 10% available)"
 
       # Alert 3：硬碟空間不足
-      - alert: DiskSpaceLow
-        expr: (1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 > 85
-        for: 5m
+      - alert: HostOutOfDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"} * 100) < 10
+        for: 2m
         labels:
-          severity: warning
+          severity: critical
+          component: node_exporter
         annotations:
-          summary: "硬碟使用率超過 85%"
-          description: "Instance {{ $labels.instance }} 的根目錄硬碟使用率已達 {{ $value | printf \"%.1f\" }}%。"
+          summary: "Host out of disk space (instance {{ $labels.instance }})"
+          description: "Disk is almost full (< 10% left)"
 
       # Alert 4：CPU 使用率過高
-      - alert: HighCPUUsage
-        expr: (1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100 > 80
-        for: 10m
+      - alert: HostHighCpuLoad
+        expr: (100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100)) > 90
+        for: 5m
         labels:
-          severity: warning
+          severity: critical
+          component: node_exporter
         annotations:
-          summary: "CPU 使用率超過 80%"
-          description: "Instance {{ $labels.instance }} 的 CPU 使用率已達 {{ $value | printf \"%.1f\" }}%，持續超過 10 分鐘。"
+          summary: "Host high CPU load (instance {{ $labels.instance }})"
+          description: "CPU load is > 90%"
 ```
 
 ### Alert Rule 結構解說
 
-以 `TargetDown` 為例，逐欄位解說：
+以 `InstanceDown` 為例，逐欄位解說：
 
 ```yaml
-- alert: TargetDown                    # Alert 名稱（PascalCase）
+- alert: InstanceDown                  # Alert 名稱（PascalCase）
   expr: up == 0                        # PromQL 條件式
-  for: 1m                             # 條件必須持續成立多久才真的觸發
-  labels:                             # 附加到 alert 上的 labels
-    severity: critical                # 決定告警的嚴重等級和路由
-  annotations:                        # 給人看的說明文字
-    summary: "{{ $labels.instance }} 已無法連線"
-    description: "Target {{ $labels.instance }} (job: {{ $labels.job }}) ..."
+  for: 5m                              # 條件必須持續成立多久才真的觸發
+  labels:                              # 附加到 alert 上的 labels
+    severity: critical                 # 決定告警的嚴重等級
+    component: alertmanager            # 告警來源元件，方便之後做 routing / filtering
+  annotations:                         # 給人看的說明文字
+    summary: "Instance {{ $labels.instance }} down"
+    description: "{{ $labels.instance }} of job {{ $labels.job }} ..."
 ```
 
 | 欄位 | 說明 |
@@ -151,7 +149,6 @@ groups:
 | `warning` | 有潛在風險或效能下降，**儘快處理** | 記憶體使用率 > 80%、硬碟快滿了 | 排進當天或隔天的工作 |
 | `info` | 狀態變化或預防性事件，**知悉即可** | SSL 憑證快到期、服務重啟了 | 有空再看 |
 
-> 💡 **講師提示：** 強調 `for` 的重要性——如果沒有 `for`，metrics 瞬間的波動就會觸發 alert，造成大量的假警報（false positive）。`for: 1m` 表示條件必須持續 1 分鐘才觸發，這大大減少了雜訊。
 
 ---
 
@@ -159,54 +156,34 @@ groups:
 
 Alertmanager 負責接收 Prometheus 發來的 alerts，進行 **分組（grouping）、去重複（deduplication）、路由（routing）**，最後送到指定的通知管道。
 
-建立 `config/alertmanager.yml`：
+建立 `Prometheus/examples/prometheus/alertmanager.yml`：
 
 ```yaml
 global:
   resolve_timeout: 5m    # 如果 alert 停止觸發超過 5 分鐘，自動標記為 resolved
 
-# 通知模板（選用）
-# templates:
-#   - '/etc/alertmanager/templates/*.tmpl'
-
-# 路由設定
+# 路由設定：所有 alert 都走到同一個 default receiver
 route:
-  receiver: "discord-default"        # 預設的通知接收者
-  group_by: ["alertname", "severity"] # 用哪些 labels 來分組 alerts
-  group_wait: 30s                    # 收到新 alert 後等待多久才發送（等待更多同組的 alerts 一起發）
-  group_interval: 5m                 # 同一組 alert 重複通知的最短間隔
+  receiver: 'default'
+  group_by: ['alertname', 'severity', 'env', 'service']
+  group_wait: 1m                     # 收到新 alert 後等待多久才發送（等待更多同組的 alerts 一起發）
+  group_interval: 10m                # 同一組 alert 重複通知的最短間隔
   repeat_interval: 4h                # 已發送的 alert 重複提醒的間隔
-
-  # 子路由：根據 severity 送到不同頻道
-  routes:
-    - match:
-        severity: critical
-      receiver: "discord-critical"
-      repeat_interval: 1h            # critical alerts 每小時重複提醒
 
 # 通知接收者定義
 receivers:
-  - name: "discord-default"
+  - name: 'default'
     discord_configs:
-      - webhook_url: "YOUR_DISCORD_WEBHOOK_URL_HERE"
-        title: '{{ if eq .Status "firing" }}🔔{{ else }}✅{{ end }} [{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+      - webhook_url_file: '/etc/alertmanager/secrets/discord/webhook-default'
+        send_resolved: true
+        title: '{{ if eq .Status "firing" }}⚠️{{ else }}✅{{ end }} [{{ .Status | toUpper }}] {{ (index .Alerts 0).Labels.alertname }}'
         message: |
-          {{ range .Alerts }}
+          {{- range .Alerts }}
           **{{ .Labels.alertname }}** ({{ .Labels.severity }})
           {{ .Annotations.summary }}
           {{ .Annotations.description }}
-          {{ end }}
-
-  - name: "discord-critical"
-    discord_configs:
-      - webhook_url: "YOUR_DISCORD_CRITICAL_WEBHOOK_URL_HERE"
-        title: '{{ if eq .Status "firing" }}🚨{{ else }}✅{{ end }} [{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
-        message: |
-          {{ range .Alerts }}
-          **{{ .Labels.alertname }}** ({{ .Labels.severity }})
-          {{ .Annotations.summary }}
-          {{ .Annotations.description }}
-          {{ end }}
+          {{- end }}
+        username: 'AlertBot'
 ```
 
 ### Alertmanager 設定檔解說
@@ -219,13 +196,7 @@ receivers:
 
 #### Route 路由設計
 
-```
-所有 alerts
-  │
-  ├── severity == critical → discord-critical（每 1 小時重複提醒）
-  │
-  └── 其他（default）→ discord-default（每 4 小時重複提醒）
-```
+這裡所有 alert 都送到同一個 `default` receiver，沒有按 severity 做分流。實際上線時常見的做法是加上子路由把 `critical` 送到警急頻道、`warning` 送到一般頻道，你可以在 Alertmanager 文件裡看到 `routes:` 和 `match:` 的用法。
 
 | 設定 | 說明 |
 |------|------|
@@ -234,13 +205,15 @@ receivers:
 | `group_interval` | 同一組如果有新的 alert 加入，至少間隔多久才發送更新通知 |
 | `repeat_interval` | 已經發送過的 alert 還在 firing，多久再提醒一次 |
 
-> 💡 **講師提示：** 用「郵局信件」的比喻——`group_wait` 就像郵差等了 30 秒，看有沒有更多信要送到同一個地址，再一起送出去。`repeat_interval` 就像如果信件一直沒被領取，每隔 4 小時再提醒一次。
+#### `webhook_url_file` 而非 `webhook_url`
+
+Webhook URL 是機密資訊——一旦 commit 進 git 或推到公開 repo，任何人都可以拿去送假訊息。這裡用 `webhook_url_file` 指向一個檔案路徑，我們把實際的 URL 放在 `prometheus/secrets/discord/webhook-default`，透過 docker volume 掛進 container，並把整個 `prometheus/secrets/` 加到 `.gitignore`。這樣設定檔可以放心 commit，機密資料留在本機。
+
 
 ---
 
 ## Step 3：建立 Discord Webhook
 
-> **如果你不使用 Discord**，可以跳過這步，改用 Alertmanager 的 Web UI 來觀察 alerts。設定檔中的 `webhook_url` 留著即可。
 
 ### 在 Discord 建立 Webhook
 
@@ -251,139 +224,23 @@ receivers:
 5. 取個名稱（例如 `Prometheus Alerts`）
 6. 點擊 **Copy Webhook URL**
 
-### 更新 Alertmanager 設定
+### 把 Webhook 存成檔案
 
-把複製的 Webhook URL 貼到 `alertmanager.yml` 中：
-
-```yaml
-receivers:
-  - name: "discord-default"
-    discord_configs:
-      - webhook_url: "https://discord.com/api/webhooks/xxxxx/yyyyy"   # ← 貼在這裡
-```
-
-> **注意**：Webhook URL 是機密資訊，不要推到公開的 Git repository。可以用環境變數或 `.env` 檔案來管理。
-
----
-
-## Step 4：更新 Docker Compose
-
-編輯 `docker-compose.yml`，加入 Alertmanager 服務：
-
-```yaml
-services:
-  prometheus:
-    image: prom/prometheus:v3.2.1
-    container_name: prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./config/rules:/etc/prometheus/rules:ro
-      - prometheus-data:/prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=7d"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-    restart: unless-stopped
-
-  node-exporter:
-    image: prom/node-exporter:v1.9.0
-    container_name: node-exporter
-    ports:
-      - "9100:9100"
-    restart: unless-stopped
-
-  alertmanager:
-    image: prom/alertmanager:v0.28.1
-    container_name: alertmanager
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-    command:
-      - "--config.file=/etc/alertmanager/alertmanager.yml"
-    restart: unless-stopped
-
-volumes:
-  prometheus-data:
-```
-
-注意 Prometheus 的 volumes 多了一行 `./config/rules:/etc/prometheus/rules:ro`，把 alert rules 掛載進去。
-
----
-
-## Step 5：更新 Prometheus 設定
-
-編輯 `config/prometheus.yml`，告訴 Prometheus 去哪裡找 alert rules，以及把 alerts 送去哪裡：
-
-```yaml
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-
-# 告訴 Prometheus 要把 alerts 送到 Alertmanager
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets: ["alertmanager:9093"]
-
-# 告訴 Prometheus 去哪裡讀取 alert rules
-rule_files:
-  - "/etc/prometheus/rules/*.yml"
-
-scrape_configs:
-  - job_name: "prometheus"
-    static_configs:
-      - targets: ["localhost:9090"]
-
-  - job_name: "node-exporter"
-    static_configs:
-      - targets: ["node-exporter:9100"]
-
-  # 也監測 Alertmanager 自己的 metrics
-  - job_name: "alertmanager"
-    static_configs:
-      - targets: ["alertmanager:9093"]
-```
-
-新增的部分：
-- `alerting` — 定義 Alertmanager 的位置
-- `rule_files` — 定義 alert rules 檔案的路徑
-- 新增了 `alertmanager` 的 scrape job
-
----
-
-## Step 6：啟動並驗證
-
-### 重啟所有服務
+不要把 URL 直接貼進 `alertmanager.yml`。改成建立一個獨立的檔案：
 
 ```bash
-cd Prometheus/examples/monitoring-stack
-docker compose up -d
+mkdir -p Prometheus/examples/prometheus/secrets/discord
+echo -n 'https://discord.com/api/webhooks/xxxxx/yyyyy' \
+  > Prometheus/examples/prometheus/secrets/discord/webhook-default
 ```
+---
 
-### 驗證各元件
 
-```bash
-docker compose ps
-```
-
-你應該看到三個 container 都是 **Up** 狀態：
-
-```
-NAME            IMAGE                        STATUS         PORTS
-alertmanager    prom/alertmanager:v0.28.1     Up             0.0.0.0:9093->9093/tcp
-node-exporter   prom/node-exporter:v1.9.0    Up             0.0.0.0:9100->9100/tcp
-prometheus      prom/prometheus:v3.2.1       Up             0.0.0.0:9090->9090/tcp
-```
-
+## Step 4：啟動並驗證
 ### 確認 Alert Rules 已載入
 
 1. 打開 http://localhost:9090/alerts
-2. 你應該看到四條 alert rules，狀態都是 **Inactive**（綠色）——代表目前沒有問題
+2. 你應該看到 Alert rules 都已載入，狀態大多是 **Inactive**（綠色）——代表目前沒有問題
 3. 每條 rule 旁邊會顯示 `expr`、`for`、`labels`、`annotations`
 
 ### 確認 Alertmanager 正常運作
@@ -397,7 +254,6 @@ prometheus      prom/prometheus:v3.2.1       Up             0.0.0.0:9090->9090/t
 1. 打開 http://localhost:9090/targets
 2. 你應該看到三個 targets 都是 **UP**：`prometheus`、`node-exporter`、`alertmanager`
 
-> 💡 **講師提示：** 讓學生確認所有三個 UI 都可以正常打開。如果 Alertmanager 無法啟動，最常見的原因是 YAML 格式錯誤——請他們檢查 `alertmanager.yml` 的縮排。
 
 ---
 
@@ -424,7 +280,7 @@ Inactive（綠色）→  Pending（黃色）→  Firing（紅色）
 - CPU 使用率瞬間飆到 85%（可能只是一個大的 compilation），1 秒後就降回來了
 - 設定 `for: 10m` 可以避免這種誤報，確保是真正的持續性問題才觸發
 
-> 💡 **講師提示：** 可以告訴學生：「Pending 就像是醫院的觀察期。體溫偏高不一定要馬上急救，但如果持續 10 分鐘都很高，那就該處理了。」
+
 
 ---
 
@@ -437,11 +293,11 @@ Inactive（綠色）→  Pending（黃色）→  Firing（紅色）
 **排查步驟**：
 
 ```bash
-# 確認 rules 檔案路徑正確
-docker compose exec prometheus ls /etc/prometheus/rules/
+# 確認 rules 檔案有成功掛進 container
+docker compose exec prometheus ls /alert_rules.yml
 
 # 確認 rules 檔案語法正確
-docker compose exec prometheus promtool check rules /etc/prometheus/rules/alerts.yml
+docker compose exec prometheus promtool check rules /alert_rules.yml
 ```
 
 ### 2. Alertmanager 設定錯誤
@@ -456,18 +312,6 @@ docker compose logs alertmanager
 docker compose exec alertmanager amtool check-config /etc/alertmanager/alertmanager.yml
 ```
 
-### 3. Discord 沒有收到通知
-
-**排查步驟**：
-
-1. 確認 Webhook URL 是正確的
-2. 確認 alert 狀態是 **Firing**（不是 Pending）
-3. 打開 Alertmanager Web UI 確認 alerts 有被接收
-4. 檢查 Alertmanager 的 logs：`docker compose logs alertmanager`
-
-### 4. 想手動測試 alert 但不想等
-
-你可以暫時把 `for` 改成 `0s`，讓 alert 立刻觸發（測試完記得改回來）。
 
 ---
 
@@ -485,7 +329,7 @@ docker compose exec alertmanager amtool check-config /etc/alertmanager/alertmana
 
 **練習 1：觸發一個 Alert**
 
-手動停掉 Node Exporter 來觸發 `TargetDown` alert：
+手動停掉 Node Exporter 來觸發 `InstanceDown` alert：
 
 ```bash
 docker compose stop node-exporter
@@ -493,9 +337,12 @@ docker compose stop node-exporter
 
 然後觀察：
 
-1. 在 http://localhost:9090/alerts 上看到 `TargetDown` 從 Inactive → Pending → Firing
+1. 在 http://localhost:9090/alerts 上看到 `InstanceDown` 從 Inactive → Pending → Firing
 2. 在 http://localhost:9093 上看到 Alertmanager 收到了 alert
-3. 在 Discord 上看到通知（如果有設定 Webhook）
+3. 把 `for` 改成 `0s`，讓 alert 立刻觸發（測試完記得改回來）
+4. 用 `docker log alertmanager`
+```time=2026-04-14T17:27:12.936s+08:00 level=DEBUG source=notify.go:975 msg="Notify success" component=dispatcher receiver=default integration=discord[0] aggrGroup="{}:{alertname=\"InstanceDown\"}" attempts=1 duration=401.501667ms numAlerts=1 alerts="InstanceDown: 1"```
+1. 在 Discord 上看到通知
 
 測試完後恢復 Node Exporter：
 
@@ -507,14 +354,19 @@ docker compose start node-exporter
 
 **練習 2：自訂一條 Alert Rule**
 
-在 `config/rules/alerts.yml` 中新增一條 alert rule，監測 Prometheus 自己的 TSDB：
+在 `prometheus/alert_rules.yml` 中新增一條 alert rule，監測 Prometheus 自己的 TSDB：
 
 - 名稱：`PrometheusTSDBTooManySeries`
 - 條件：`prometheus_tsdb_head_series > 10000`（time series 數量超過 10000 條）
 - 持續時間：5 分鐘
 - 嚴重等級：warning
 
-> **接下來，我們要加入 Blackbox Exporter 和 Grafana，完成完整的監控系統！**
+新增完 reload Prometheus：
+
+```bash
+docker compose kill -s SIGHUP prometheus
+```
+
 
 ---
 

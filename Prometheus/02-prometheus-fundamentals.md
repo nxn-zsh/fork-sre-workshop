@@ -28,7 +28,7 @@
     - [Label 的注意事項](#label-的注意事項)
   - [PromQL 入門](#promql-入門)
     - [基本查詢](#基本查詢)
-    - [Label 篩選](#label-篩選)
+    - [Label 標籤](#label-標籤)
     - [Range Vector — 時間範圍查詢](#range-vector--時間範圍查詢)
     - [常用函數](#常用函數)
     - [實用查詢範例](#實用查詢範例)
@@ -74,8 +74,8 @@ Pull-based（Prometheus）:
 | **流量控制** | Prometheus 決定 scrape 頻率，不會被大量 push 淹沒 | 大量服務同時 push 可能造成 monitoring 系統過載 |
 | **除錯方便** | 可以直接瀏覽器打開服務的 `/metrics` endpoint 查看 | 資料推送後才看得到 |
 
-> Pull-based 就像醫生每 30 分鐘固定巡房一次（主動檢查）
-> Push-based 就像等病人按鈴才去看（被動等待）
+* Pull-based 就像醫生每 30 分鐘固定巡房一次（主動檢查）
+* Push-based 就像等病人按鈴才去看（被動等待）
 > 醫生巡房的好處是即使病人昏迷了（服務掛了），醫生走到病房就知道出問題了
 
 ---
@@ -106,7 +106,6 @@ Pull-based（Prometheus）:
  (scrape)         (alert rules)   (routing)       (Discord/Email)    (dashboards)
 ```
 
-> 💡 **講師提示：** 搭配架構圖講解時，用「蒐集 → 評估 → 告警 → 通知 → 視覺化」這五步流程串起來，讓學生理解資料如何從服務端一路流到 Discord 通知。
 
 ---
 
@@ -141,8 +140,6 @@ http_requests_total{service="api", env="prod"} @ 14:00:00 = 1000
 | **Labels** | 一組 key-value pairs，用來區分同名 metric 的不同維度 | `service="api"`, `env="prod"` |
 | **Timestamp** | 這筆資料是什麼時候記錄的 | `14:00:00` |
 | **Value** | 實際量測到的數值（64-bit 浮點數） | `1000` |
-
-> 💡 **講師提示：** 可以用 Excel 表格來類比——Metric Name 是表格的名稱，Labels 是欄位標題，每一行是一個 timestamp + value 的組合。
 
 ---
 
@@ -183,7 +180,7 @@ node_hwmon_temp_celsius{chip="coretemp"} = 65.0
 active_connections{service="api"} = 127
 ```
 
-**生活化比喻**：溫度計——溫度會上升也會下降
+**比喻**：溫度計——溫度會上升也會下降
 
 ### Histogram — 分布直方圖
 
@@ -202,7 +199,7 @@ http_request_duration_seconds_count             = 10000  # 總請求數
 http_request_duration_seconds_sum               = 3250.5 # 總時間（秒）
 ```
 
-**生活化比喻**：考試成績分布圖——多少人 60 分以下、60-70、70-80、80-90、90 以上。
+**比喻**：考試成績分布圖——多少人 60 分以下、60-70、70-80、80-90、90 以上。
 
 ### Summary — 摘要
 
@@ -289,7 +286,7 @@ prometheus_tsdb_head_samples_appended_total
 - `up == 1` 表示 target 正常
 - `up == 0` 表示 target 掛了
 
-### Label 篩選
+### Label 標籤
 
 ```promql
 # 精確匹配
@@ -338,16 +335,16 @@ http_requests_total[1h]
 | `max()` / `min()` | 最大值 / 最小值 | `max(memory_usage_bytes)` |
 | `histogram_quantile()` | 從 Histogram 計算百分位數 | `histogram_quantile(0.95, rate(http_duration_seconds_bucket[5m]))` |
 
-> **重要**：`rate()` 只能用在 Counter 類型的 metric 上。對 Gauge 用 `rate()` 是沒有意義的。
+>`rate()` 只能用在 Counter 類型的 metric 上。對 Gauge 用 `rate()` 是沒有意義的。
 
 ### 實用查詢範例
 
 ```promql
-# 某個服務現在有沒有在跑？
-probe_success{service="grafana"}
+# 所有 scrape targets 現在有沒有在跑？
+up
 
-# 某個服務的探測花了多久？
-probe_duration_seconds{service="grafana"}
+# 只看掛掉的 targets
+up == 0
 
 # 過去 5 分鐘的 HTTP request 速率
 rate(http_requests_total[5m])
@@ -359,8 +356,7 @@ rate(http_requests_total[5m])
 (1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
 ```
 
-> 💡 **講師提示：** PromQL 不需要一次全學會。先記住 `up`（服務有沒有在跑）、`rate()`（速率計算）這兩個最常用的就好。後續章節在實作時會帶著學生練習更多查詢。
-
+> PromQL 不需要一次全學會。先記住 `up`（服務有沒有在跑）、`rate()`（速率計算）這兩個最常用的就好
 ---
 
 ## Metrics 的傳輸格式
@@ -392,21 +388,18 @@ http_request_duration_seconds_sum 3250.5
 - `# TYPE` — metric 的類型（counter、gauge、histogram、summary）
 - metric 名稱 + labels + 數值
 
-你可以直接在瀏覽器中輸入 `http://<service>:<port>/metrics` 來查看原始的 metrics 資料。
+透過 http://localhost:8088/metrics 來查看原始的 metrics 資料。
 
 ---
 
 ## 小結
 
 - **Prometheus** 是 Pull-based 的 monitoring 系統，主動去服務端拉取 metrics
-- 系統架構包含四大元件：**Prometheus**（蒐集）、**Exporter**（轉換）、**Alertmanager**（告警）、**Grafana**（視覺化）
+- 系統架構包含四大Components：**Prometheus**（蒐集）、**Exporter**（讀metrics）、**Alertmanager**（告警）、**Grafana**（視覺化）
 - 所有 metrics 以 **time series** 形式儲存，包含 metric name + labels + timestamp + value
 - 四種 metric 類型：**Counter**（累計）、**Gauge**（當下值）、**Histogram**（分布）、**Summary**（百分位）
-- **Labels** 是用來區分和篩選 metrics 的 key-value pairs
+- **Labels** 是用來區分標記 metrics 的 key-value pairs
 - **PromQL** 是 Prometheus 的查詢語言，`up` 和 `rate()` 是最常用的查詢
-- **Blackbox**（外部探測）和 **Whitebox**（內部指標）monitoring 是互補的
-
-> **接下來，我們要動手從零開始部署 Prometheus！**
 
 ---
 

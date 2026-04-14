@@ -9,7 +9,7 @@ volumes:
 
 services:
   app:
-    build: .
+    build: ./app
     ports:
       - "8088:8088"
     networks:
@@ -30,6 +30,7 @@ services:
       - monitoring
     depends_on:
       - app
+      - alertmanager
 
   node-exporter:
     image: prom/node-exporter:v1.11.1
@@ -84,3 +85,4 @@ services:
       - monitoring
     depends_on:
         - prometheus
+        - alertmanager

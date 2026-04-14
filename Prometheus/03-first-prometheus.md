@@ -1,527 +1,359 @@
-# 03 — 動手做：部署 Prometheus
+# 03 — 動手做：跑起第一個 Prometheus
 
-> **時間：25 分鐘**
+
+在前兩章，我們聊了 monitoring 是什麼、Prometheus 的核心概念是什麼。這一章，我們要把它 **跑起來**。
+
+但我們不會從零開始打字建檔——工作坊已經把完整的範例 stack 放在 `Prometheus/examples/` 裡了。這張會講從一個服務怎麼expose metrics 開始，走到 Prometheus 怎麼把它們抓下來、怎麼在 Web UI 畫成圖。
 
 ---
 
 ## 目錄
 
-- [03 — 動手做：部署 Prometheus](#03--動手做部署-prometheus)
+- [03 — 動手做：跑起第一個 Prometheus](#03--動手做跑起第一個-prometheus)
   - [目錄](#目錄)
   - [事前準備](#事前準備)
-    - [確認工具已安裝](#確認工具已安裝)
-  - [](#)
-  - [Step 1：/examples 檔案結構](#step-1examples-檔案結構)
-  - [Step 2：建立 Prometheus 設定檔](#step-2建立-prometheus-設定檔)
-    - [為什麼要監測 Prometheus 自己？](#為什麼要監測-prometheus-自己)
-  - [Step 3：建立 Docker Compose 檔案](#step-3建立-docker-compose-檔案)
-    - [逐行解說](#逐行解說)
-  - [Step 4：啟動 Prometheus](#step-4啟動-prometheus)
-  - [Step 5：探索 Prometheus Web UI](#step-5探索-prometheus-web-ui)
+  - [Step 1：/examples 裡有什麼？](#step-1examples-裡有什麼)
+  - [Step 2：啟動整個 stack](#step-2啟動整個-stack)
+  - [Step 3：一個服務怎麼 expose metrics？](#step-3一個服務怎麼-expose-metrics)
+    - [從 `/home` 製造流量](#從-home-製造流量)
+    - [看 `/metrics` 的原始輸出](#看-metrics-的原始輸出)
+    - [對照原始碼](#對照原始碼)
+  - [Step 4：Prometheus 把這些 metrics 抓到哪去了？](#step-4prometheus-把這些-metrics-抓到哪去了)
     - [Targets 頁面](#targets-頁面)
-    - [Graph 頁面](#graph-頁面)
-    - [直接查看 /metrics endpoint](#直接查看-metrics-endpoint)
-  - [Step 6：加入 Node Exporter](#step-6加入-node-exporter)
-    - [更新 Docker Compose](#更新-docker-compose)
-    - [更新 Prometheus 設定](#更新-prometheus-設定)
-    - [重啟服務](#重啟服務)
-    - [驗證 Node Exporter](#驗證-node-exporter)
-  - [Step 7：用 PromQL 查詢 Node Exporter 的 Metrics](#step-7用-promql-查詢-node-exporter-的-metrics)
-    - [查看所有 targets 是否正常](#查看所有-targets-是否正常)
-    - [記憶體使用率（百分比）](#記憶體使用率百分比)
-    - [CPU 使用率（百分比）](#cpu-使用率百分比)
-    - [硬碟使用率（百分比）](#硬碟使用率百分比)
-    - [系統開機時間](#系統開機時間)
-  - [設定檔逐行解說](#設定檔逐行解說)
-    - [prometheus.yml 完整解說](#prometheusyml-完整解說)
-    - [關鍵概念](#關鍵概念)
+    - [prometheus.yml](#prometheusyml)
+  - [Step 5：用 PromQL 畫圖](#step-5用-promql-畫圖)
+    - [Query 1：看誰還活著](#query-1看誰還活著)
+    - [Query 2：每秒多少人訪問 /home？](#query-2每秒多少人訪問-home)
+    - [Query 3：現在有幾個 active users？](#query-3現在有幾個-active-users)
+    - [Query 4：主機的 CPU 使用率](#query-4主機的-cpu-使用率)
+  - [到這邊我們有](#到這邊我們有)
   - [常見問題排解](#常見問題排解)
-    - [1. Port 被占用](#1-port-被占用)
-    - [2. Prometheus 設定檔語法錯誤](#2-prometheus-設定檔語法錯誤)
-    - [3. Node Exporter 在 macOS 上 metrics 很少](#3-node-exporter-在-macos-上-metrics-很少)
-    - [4. Target 顯示 DOWN](#4-target-顯示-down)
   - [小結與練習題](#小結與練習題)
-    - [本章重點回顧](#本章重點回顧)
-    - [練習題](#練習題)
-
 
 ---
 
 ## 事前準備
 
-### 確認工具已安裝
-
-在 Docker workshop 中你已經安裝了 Docker 和 Docker Compose。請確認它們都能正常使用：
+在 Docker workshop 中已經安裝了 Docker、Docker Compose、git。確認它們能正常使用：
 
 ```bash
-docker --version          # Docker version 27.x.x 或以上
-docker compose version    # Docker Compose version v2.x.x 或以上
+docker --version
+docker compose version
+git --version
 ```
 
-下載 [Prometheus Formatter Extension](https://chromewebstore.google.com/detail/jhfbpphccndhifmpfbnpobpclhedckbb?utm_source=item-share-cb)
+建議也裝一個瀏覽器擴充功能，讓 `/metrics` 的原始輸出比較好讀：
 
-![alt](./assets/metricspage.png)
-![alt text](./assets/formatter.png)
----
+- [Prometheus Formatter Extension](https://chromewebstore.google.com/detail/jhfbpphccndhifmpfbnpobpclhedckbb?utm_source=item-share-cb)
 
-## Step 1：/examples 檔案結構
-``
+![raw metrics page](./assets/metricspage.png)
 
+裝之後有縮排、顏色、可以收折：
 
-```
-Prometheus/examples/monitoring-stack/
-├── docker-compose.yml          
-└── config/
-    └── prometheus.yml          
-```
+![formatted metrics page](./assets/formatter.png)
 
 ---
 
-## Step 2：建立 Prometheus 設定檔
+## Step 1：/examples 裡有什麼？
 
-Prometheus 的核心設定檔是一個 YAML 檔案，告訴 Prometheus：
+先用 `ls` 看一眼：
 
-1. **多久** scrape 一次 metrics
-2. **去哪裡** scrape（也就是 scrape targets）
-
-建立 `Prometheus/examples/monitoring-stack/config/prometheus.yml`：
-
-```yaml
-# Prometheus 主設定檔
-global:
-  scrape_interval: 15s      # 每 15 秒去 scrape 一次（預設是 1 分鐘）
-  evaluation_interval: 15s  # 每 15 秒評估一次 alert rules
-
-# Scrape 設定 — 定義要監測的 targets
-scrape_configs:
-  # Job 1：監測 Prometheus 自己
-  - job_name: "prometheus"
-    static_configs:
-      - targets: ["localhost:9090"]
+```
+examples/
+├── docker-compose.yml        # 把下面所有服務串在一起
+├── app/                      # 一個示範用的 Go 服務，會 expose /metrics
+│   ├── Dockerfile
+│   ├── main.go
+│   └── go.mod, go.sum
+├── prometheus/
+│   ├── prometheus.yml        # scrape 設定 + alerting 指向 alertmanager
+│   ├── alert_rules.yml       # 告警規則（下一章會用到）
+│   ├── alertmanager.yml      # Alertmanager 設定（下一章會用到）
+│   └── secrets/              # Discord webhook 的 secret 放這裡（gitignored）
+└── grafana/
+    └── provisioning/         # Grafana data sources + dashboard 預載
 ```
 
-### 為什麼要監測 Prometheus 自己？
-
-這叫做 **self-monitoring**。Prometheus 本身也是一個服務，它也可能出問題（記憶體不足、TSDB 損壞等）。讓 Prometheus scrape 自己的 `/metrics` endpoint，你可以知道：
-
-- Prometheus 吃了多少記憶體
-- TSDB 儲存了多少 time series
-- scrape 有沒有失敗
-
-> 💡 **講師提示：** 這裡可以順便介紹 `scrape_interval` 的意義。15 秒是教學用途，正式環境通常用 30 秒到 1 分鐘。間隔越短，資料越精細，但儲存和 CPU 消耗也越大。
+這一章先講 `app/` 和 `prometheus/prometheus.yml`
 
 ---
 
-## Step 3：建立 Docker Compose 檔案
-
-建立 `Prometheus/examples/monitoring-stack/docker-compose.yml`：
-
-```yaml
-services:
-  prometheus:
-    image: prom/prometheus:v3.2.1
-    container_name: prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=7d"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-    restart: unless-stopped
-
-volumes:
-  prometheus-data:
-```
-
-### 逐行解說
-
-| 設定 | 說明 |
-|------|------|
-| `image: prom/prometheus:v3.2.1` | 使用 Prometheus 官方 Docker image，指定版本避免意外升級 |
-| `ports: "9090:9090"` | 把 container 內的 9090 port 映射到主機的 9090 port |
-| `volumes: ./config/prometheus.yml:...` | 把我們的設定檔掛載到 container 內，`:ro` 表示唯讀 |
-| `volumes: prometheus-data:/prometheus` | 用 Docker volume 持久化 TSDB 資料，重啟不會遺失 |
-| `--storage.tsdb.retention.time=7d` | 資料保留 7 天，超過自動清理 |
-| `restart: unless-stopped` | 除非手動停止，否則 container 異常退出時自動重啟 |
-
-> 💡 **講師提示：** 提醒學生在 Docker workshop 中學過的 volumes、ports 等概念。這裡是實際應用這些知識的好機會。
-
----
-
-## Step 4：啟動 Prometheus
-
-在 `Prometheus/examples/monitoring-stack/` 目錄下執行：
+## Step 2：啟動整個 stack
 
 ```bash
-cd Prometheus/examples/monitoring-stack
 docker compose up -d
 ```
 
-確認 container 正常運行：
+確認每個 service 都在跑：
 
 ```bash
 docker compose ps
 ```
 
-你應該看到類似以下的輸出：
+你應該看到 5 個 services：`app`、`prometheus`、`node-exporter`、`alertmanager`、`grafana`。如果有哪個不是 **running**，用 `docker compose logs <service-name>` 看一下。
 
-```
-NAME         IMAGE                    STATUS         PORTS
-prometheus   prom/prometheus:v3.2.1   Up 10 seconds  0.0.0.0:9090->9090/tcp
-```
-
-確認 Prometheus 有在回應：
-
-```bash
-curl -s http://localhost:9090/-/healthy
-# 預期輸出：Prometheus Server is Healthy.
-```
-
-> 💡 **講師提示：** 如果有學生的 container 沒有起來，請他們跑 `docker compose logs prometheus` 查看錯誤訊息。最常見的問題是 YAML 縮排錯誤或 port 被占用。
+> **Port 對照表**
+>
+> | 服務 | URL |
+> |------|-----|
+> | Go app | http://localhost:8088 |
+> | Prometheus | http://localhost:9090 |
+> | Node Exporter | http://localhost:9100 |
+> | Alertmanager | http://localhost:9093 |
+> | Grafana | http://localhost:3000 |
 
 ---
 
-## Step 5：探索 Prometheus Web UI
+## Step 3：一個服務怎麼 expose metrics？
 
-打開瀏覽器，進入 http://localhost:9090
+因為Prometheus 是 **pull-based** 的，它自己定時去每個服務的 `/metrics` endpoint 抓資料。那服務這端要怎麼準備這個 endpoint？我們從 `examples/app` 這個 Go 小程式開始看。
+
+### 從 `/home` 製造流量
+
+先製造一點流量，`/metrics` 才有東西可看：
+
+```bash
+for i in {1..10}; do curl -s http://localhost:8088/home; echo; done
+```
+
+### 看 `/metrics` 的原始輸出
+
+打開 http://localhost:8088/metrics
+
+這就是 **Prometheus exposition format**——純文字、一行一個 sample，前面的 `# HELP` 和 `# TYPE` 註解告訴 Prometheus 這個 metric 是做什麼的、是哪一種類型。
+
+回頭對照第 2 章介紹過的四種 metric types：
+
+| 在 `/metrics` 看到的 | 對應到 |
+|---------------------|--------|
+| `home_requests_total` | **Counter**（只會增加） |
+| `active_users` | **Gauge**（上下都會動） |
+| `http_request_duration_seconds_bucket` / `_sum` / `_count` | **Histogram**（分桶的分佈） |
+| `http_request_summary_seconds` | **Summary**（client 端算好 quantile） |
+
+### 對照原始碼
+
+打開 `examples/app/main.go`，看一下 `NewMetrics` 函式（大約 30-65 行）。你會看到這幾種 metric 是怎麼被宣告出來的：
+
+```go
+httpRequestsTotal: prometheus.NewCounterVec(
+    prometheus.CounterOpts{
+        Name: "home_requests_total",
+        Help: "Total number of requests and status to the /home endpoint.",
+    },
+    []string{"method", "status"},
+),
+```
+
+然後在 `homeHandler` 裡，每次有人訪問 `/home`，這些 metric 就被更新一次：
+
+```go
+m.activeUsers.Inc()            // gauge +1
+defer m.activeUsers.Dec()      // 離開時 gauge -1
+m.httpRequestDuration.WithLabelValues("/home").Observe(duration)
+m.httpRequestsTotal.With(prometheus.Labels{"method": r.Method, "status": "200"}).Inc()
+```
+
+最後在 `main` 裡，把 `/metrics` 這個 endpoint 掛上去：
+
+```go
+http.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
+```
+
+宣告 metric → 在 request 處理的地方更新它 → 把 `/metrics` endpoint 開出去。
+
+---
+
+## Step 4：Prometheus 把這些 metrics 抓到哪去了？
+
+打開 http://localhost:9090。這是 Prometheus 自己的 Web UI。
 
 ### Targets 頁面
 
-點擊上方導覽列的 **Status → Targets**：
+點上方導覽列的 **Status → Target health**。你會看到一張表，每一列是一個 Prometheus 正在 scrape 的 target：
 
-- 你應該看到一個名為 **prometheus** 的 target
-- 狀態應該是 **UP**（綠色）
-- `Last Scrape` 欄位顯示上次 scrape 的時間
-- `Scrape Duration` 顯示 scrape 花了多久
+- `prometheus` — Prometheus 自己（self-monitoring）
+- `go_practice` — 剛剛那個 Go app
+- `node` — Node Exporter（硬體指標）
+- `alertmanager` — Alertmanager 自己的 metrics
+- `demo` —  promlabs 的demo endpoint
 
-如果狀態是 **DOWN**（紅色），表示 scrape 失敗了——通常是設定檔的 target 地址寫錯。
+每個 target 應該都是 **UP**（綠色）。如果 `go_practice` 是 DOWN，表示 Prometheus 連不到 app container——通常是網路設定或 service name 寫錯。
 
-### Graph 頁面
+### prometheus.yml
 
-回到首頁（Graph 頁面），在查詢框中輸入以下 PromQL 查詢：
-
-**查詢 1：所有 targets 的狀態**
-
-```promql
-up
-```
-
-你應該看到一筆結果：`up{instance="localhost:9090", job="prometheus"} = 1`。
-
-`1` 代表正常，`0` 代表掛了。
-
-**查詢 2：Prometheus 的記憶體使用量**
-
-```promql
-process_resident_memory_bytes{job="prometheus"}
-```
-
-點擊 **Graph** 分頁可以看到記憶體使用量隨時間變化的曲線圖。
-
-**查詢 3：Prometheus 已經收錄了多少 time series**
-
-```promql
-prometheus_tsdb_head_series
-```
-
-這個數字代表 TSDB 中目前有多少條活躍的 time series。
-
-### 直接查看 /metrics endpoint
-
-你也可以在瀏覽器中直接打開 http://localhost:9090/metrics，看到 Prometheus 暴露的所有 metrics 原始資料。這就是 Prometheus 對自己做 scrape 時看到的內容。
-
-> 💡 **講師提示：** 讓學生花 2-3 分鐘自由探索 Web UI。可以引導他們試試看在 Graph 頁面輸入 `prometheus_` 然後看自動完成提示，感受一下 Prometheus 自己產生了哪些 metrics。
-
----
-
-## Step 6：加入 Node Exporter
-
-目前我們只有 Prometheus 自己的 metrics。接下來加入 **Node Exporter**，讓我們能夠監測主機的硬體指標（CPU、記憶體、硬碟等）。
-
-### 更新 Docker Compose
-
-編輯 `docker-compose.yml`，在 `services` 區塊中加入 Node Exporter：
-
-```yaml
-services:
-  prometheus:
-    image: prom/prometheus:v3.2.1
-    container_name: prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus-data:/prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=7d"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-    restart: unless-stopped
-
-  node-exporter:
-    image: prom/node-exporter:v1.9.0
-    container_name: node-exporter
-    ports:
-      - "9100:9100"
-    volumes:
-      - /proc:/host/proc:ro
-      - /sys:/host/sys:ro
-      - /:/rootfs:ro
-    command:
-      - "--path.procfs=/host/proc"
-      - "--path.sysfs=/host/sys"
-      - "--path.rootfs=/rootfs"
-      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
-    restart: unless-stopped
-
-volumes:
-  prometheus-data:
-```
-
-> **macOS 使用者注意**：在 macOS 上 `/proc` 和 `/sys` 不存在，Node Exporter 的某些 collector 會無法使用。你可以改用以下精簡版，只掛載可用的路徑：
->
-> ```yaml
->   node-exporter:
->     image: prom/node-exporter:v1.9.0
->     container_name: node-exporter
->     ports:
->       - "9100:9100"
->     restart: unless-stopped
-> ```
-
-### 更新 Prometheus 設定
-
-編輯 `config/prometheus.yml`，加入 Node Exporter 的 scrape job：
+打開 `examples/prometheus/prometheus.yml`：
 
 ```yaml
 global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+  scrape_interval: 30s       # 每 30 秒去 scrape 一次
+  evaluation_interval: 15s   # 每 15 秒評估一次 alert rules
+
+rule_files:
+  - "/alert_rules.yml"       # 告警規則檔的路徑
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "alertmanager:9093"   # 告警要送去哪
 
 scrape_configs:
-  - job_name: "prometheus"
+  - job_name: "go_practice"
     static_configs:
-      - targets: ["localhost:9090"]
+      - targets:
+          - "app:8088"                # 注意不是 localhost:8088
 
-  # Job 2：監測主機的硬體指標
-  - job_name: "node-exporter"
+  - job_name: "node"
     static_configs:
-      - targets: ["node-exporter:9100"]
+      - targets:
+          - "node-exporter:9100"
 ```
 
-注意 target 地址用的是 `node-exporter:9100` 而不是 `localhost:9100`——因為在 Docker 網路中，container 之間用 **service name** 來通訊。
+幾個細節：
 
-### 重啟服務
-
-```bash
-docker compose up -d
-```
-
-Prometheus 會自動偵測到設定檔的變更。你也可以用以下指令讓 Prometheus 重新讀取設定：
-
-```bash
-# 方式 1：重啟 container
-docker compose restart prometheus
-
-# 方式 2：發送 SIGHUP 信號（不需要重啟）
-docker compose kill -s SIGHUP prometheus
-```
-
-### 驗證 Node Exporter
-
-1. 打開 http://localhost:9100/metrics —— 你會看到大量的硬體 metrics
-2. 回到 Prometheus 的 Targets 頁面 (http://localhost:9090/targets) —— 你應該看到兩個 target 都是 **UP**
-
-> 💡 **講師提示：** 讓學生打開 Node Exporter 的 `/metrics` 頁面，看看原始的 metrics 長什麼樣子。搜尋 `node_memory` 或 `node_cpu` 來感受 metrics 的命名規則。
+- **`targets: "app:8088"`** 不是 `localhost:8088`——因為 Prometheus 和 app 都是 container，彼此用 Docker network 的 **service name** 通訊。
+- **`scrape_interval: 30s`** 是Global預設值，個別 job 可以覆蓋。
+- **`alerting:` 和 `rule_files:`** 下一章 Alertmanager 用的
 
 ---
 
-## Step 7：用 PromQL 查詢 Node Exporter 的 Metrics
+## Step 5：用 PromQL 畫圖
 
-回到 Prometheus Web UI (http://localhost:9090)，試試以下查詢：
+回到 Prometheus UI 首頁（Graph 頁面）。左邊的輸入框就是 PromQL 查詢的地方。
 
-### 查看所有 targets 是否正常
+### Query 1：看誰還活著
 
 ```promql
 up
 ```
 
-現在應該會看到兩筆結果——一筆是 `prometheus`，一筆是 `node-exporter`。
+按 **Execute**，你會看到每個 target 一筆結果，`1` 代表 scrape 成功、`0` 代表失敗。切到 **Graph** 分頁可以看到時間軸上的走勢——理想狀況下應該是一條直直的 `1`。
 
-### 記憶體使用率（百分比）
+### Query 2：每秒多少人訪問 /home？
 
-```promql
-(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
+再產生一波流量：
+
+```bash
+for i in {1..15}; do curl -s http://localhost:8088/home; done
 ```
 
-切換到 **Graph** 分頁可以看到記憶體使用率的趨勢圖。
+然後在 Prometheus 查：
 
-### CPU 使用率（百分比）
+```promql
+rate(home_requests_total[1m])
+```
+
+`home_requests_total` 是 counter（只會漲），直接看它沒意義——你會只看到一條持續往上爬的線。`rate(...[1m])` 算的是 **過去 1 分鐘內每秒的平均增長率**，這才是真正的「每秒請求數」。
+
+> 這個「counter 一定要套 `rate()` / `irate()` / `increase()` 才有意義」
+
+### Query 3：現在有幾個 active users？
+
+```promql
+active_users
+```
+
+這是 gauge，可以直接看。它大部分時候會是 0，因為 handler 進來時 +1、離開時 -1，而 handler 執行很快。想看它跳動，開另一個 terminal 跑個壓力測試：
+
+```bash
+# 10 個並行連線 30 秒
+ab -c 10 -t 30 http://localhost:8088/home
+# 沒有 ab 的話用這個也行：
+# for i in {1..200}; do curl -s http://localhost:8088/home & done; wait
+```
+
+### Query 4：主機的 CPU 使用率
+
+Node Exporter 的經典查詢：
 
 ```promql
 (1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
 ```
 
-這個查詢做了三件事：
-1. `node_cpu_seconds_total{mode="idle"}` — 取得 CPU 閒置時間
-2. `rate(...[5m])` — 計算過去 5 分鐘的每秒變化率
-3. `1 - avg by(instance)(...)` — 用 1 減去閒置率 = CPU 使用率
+拆開來看：
+1. `node_cpu_seconds_total{mode="idle"}` — CPU 閒置時間（counter）
+2. `rate(...[5m])` — 過去 5 分鐘的每秒變化率 = 每秒有多少秒是閒置的（0 到 1）
+3. `avg by(instance)(...)` — 把所有 CPU 核心平均起來
+4. `1 - ... ` — 非閒置比例 = 使用率
+5. `* 100` — 轉成百分比
 
-### 硬碟使用率（百分比）
 
-```promql
-(1 - node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100
-```
 
-### 系統開機時間
-
-```promql
-node_boot_time_seconds
-```
-
-這是一個 Gauge metric，記錄了系統開機的 Unix timestamp。
-
-> 💡 **講師提示：** 在這個步驟花足夠的時間讓學生嘗試不同的查詢。鼓勵他們在查詢框裡輸入 `node_` 然後看自動完成的建議，自己探索有哪些 metrics 可以查。
 
 ---
 
-## 設定檔逐行解說
+## 到這邊我們有
 
-### prometheus.yml 完整解說
+- 一個會 expose `/metrics` 的服務
+- 一個把它抓下來、存進 TSDB 的 Prometheus
+- 一個可以用 PromQL 查詢畫圖的 Web UI
 
-```yaml
-# === 全域設定 ===
-global:
-  scrape_interval: 15s       # 所有 scrape jobs 的預設 scrape 間隔
-                              # 可以在個別 job 中覆蓋這個設定
-  evaluation_interval: 15s   # 評估 alert rules 的間隔
-                              # 每 15 秒檢查一次有沒有 alert 需要觸發
+但 Prometheus Web UI 的 Graph 很陽春，看完 query 就沒了，沒辦法長期觀察、沒辦法拼 dashboard；而且它只會「顯示」資料，不會「通知」你出事。
 
-# === Scrape 設定 ===
-# 定義 Prometheus 要去哪裡蒐集 metrics
-scrape_configs:
-  # 每個 job_name 代表一組邏輯上相關的 targets
-  - job_name: "prometheus"         # Job 的名稱（會自動加成 label）
-    static_configs:                # 靜態設定 targets（vs. service discovery）
-      - targets: ["localhost:9090"] # target 的地址列表
-
-  - job_name: "node-exporter"
-    static_configs:
-      - targets: ["node-exporter:9100"]
-    # 你也可以在這裡覆蓋 global 的 scrape_interval：
-    # scrape_interval: 30s
-```
-
-### 關鍵概念
-
-| 概念 | 說明 |
-|------|------|
-| **Job** | 一組目的相同的 targets。所有 targets 會自動被加上 `job="<job_name>"` label |
-| **Target** | 一個 Prometheus 要 scrape 的 endpoint（`host:port`） |
-| **static_configs** | 手動列出 targets。另一種方式是 service discovery（自動發現） |
-| **scrape_interval** | 多久去 scrape 一次。global 的是預設值，可以在 job 層級覆蓋 |
+下一章 **Alertmanager**：當 CPU 超過 90% 撐了 5 分鐘，它會自動發 Discord 通知給你。
 
 ---
 
 ## 常見問題排解
 
-### 1. Port 被占用
+**1. Port 被占用**
 
 ```
 Error starting userland proxy: listen tcp4 0.0.0.0:9090: bind: address already in use
 ```
 
-**解決方式**：找出誰在用這個 port，停掉它，或改用其他 port：
+找出誰在用：
 
 ```bash
-# 找出誰在用 9090
 lsof -i :9090
-
-# 或改用其他 port（例如 9091）
-# 修改 docker-compose.yml 的 ports 為 "9091:9090"
+# 或者：改 docker-compose.yml 的 ports 對應，例如 "9091:9090"
 ```
 
-### 2. Prometheus 設定檔語法錯誤
-
-**症狀**：Prometheus container 啟動後立刻退出。
+**2. `app` target 是 DOWN**
 
 ```bash
-# 查看錯誤訊息
-docker compose logs prometheus
+# 從 prometheus container 裡面 ping 一下 app
+docker compose exec prometheus wget -qO- http://app:8088/metrics | head
 ```
 
-**常見錯誤**：YAML 縮排不正確、key 名稱拼錯。
+如果上面這行也連不到，通常是 `app` container 沒起來，或 service name 寫錯。
 
-**驗證設定檔語法**：
+**3. `/metrics` 打開是一片空白**
+
+先進 `/home` 幾次。這個 Go app 的 metric 是 lazy registered 的——第一次有 request 進來前，某些 metric 根本還沒被登錄。
+
+**4. 設定檔改了 Prometheus 沒反應**
+
+Prometheus 不會自動 reload。兩種方式：
 
 ```bash
-# 用 Prometheus 的內建工具檢查設定檔
-docker run --rm -v $(pwd)/config:/etc/prometheus prom/prometheus:v3.2.1 \
-  promtool check config /etc/prometheus/prometheus.yml
+docker compose restart prometheus           # 重啟 container
+docker compose kill -s SIGHUP prometheus    # 送 SIGHUP（不中斷服務）
 ```
 
-### 3. Node Exporter 在 macOS 上 metrics 很少
-
-這是正常的。macOS 不是 Linux，所以 `/proc` 和 `/sys` 不存在，很多 Linux-specific 的 collector 無法使用。你仍然可以看到一些基本 metrics（如 Go runtime metrics）。完整的 Node Exporter 功能需要在 Linux 環境中才能體驗。
-
-### 4. Target 顯示 DOWN
-
-**排查步驟**：
+改完後先用 `promtool` 驗語法再套用：
 
 ```bash
-# 1. 確認 container 有在跑
-docker compose ps
-
-# 2. 確認 endpoint 可以連到
-docker compose exec prometheus wget -qO- http://node-exporter:9100/metrics | head
-
-# 3. 確認 prometheus.yml 中的 target 地址正確
+docker run --rm \
+  -v "$PWD/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro" \
+  -v "$PWD/prometheus/alert_rules.yml:/alert_rules.yml:ro" \
+  --entrypoint promtool prom/prometheus:v3.11.2 \
+  check config /etc/prometheus/prometheus.yml
 ```
-
-> 💡 **講師提示：** 如果多數學生遇到問題，建議統一排查。最常見的問題是 YAML 縮排錯誤和 Docker 網路問題（container name 寫錯）。
 
 ---
 
 ## 小結與練習題
 
-### 本章重點回顧
+**本章重點回顧**
 
-- Prometheus 的核心設定檔是 `prometheus.yml`，定義了 **scrape_interval** 和 **scrape_configs**
-- 用 Docker Compose 可以快速部署 Prometheus，設定檔用 volume 掛載進 container
-- Prometheus Web UI 的 **Targets** 頁面可以查看所有 scrape target 的狀態
-- **Node Exporter** 負責將主機的硬體指標（CPU、記憶體、硬碟等）轉換成 Prometheus 格式的 metrics
-- 在 Docker 網路中，container 之間用 **service name** 通訊（不是 `localhost`）
+- 服務 expose metrics 的方式：用 client library 宣告 metric → 在程式邏輯裡更新 → 開 `/metrics` HTTP endpoint
+- Prometheus exposition format：純文字、`# HELP` / `# TYPE` 註解 + `name{labels} value` 的 sample 行
+- `prometheus.yml` 的核心是 `scrape_configs`，用 `job_name` 分組，target 在同一個 Docker 網路裡要用 **service name** 而不是 `localhost`
+- Counter 查詢幾乎一定要套 `rate()` / `irate()` / `increase()`，Gauge 可以直接看
 
-### 練習題
 
-**練習 1：修改 scrape interval**
-
-把 `prometheus.yml` 的 `scrape_interval` 改成 `5s`，重啟 Prometheus，觀察 Targets 頁面的 `Last Scrape` 間隔是否變成 5 秒。改完後記得改回 `15s`。
-
-**練習 2：探索 Prometheus 自己的 metrics**
-
-在 Graph 頁面查詢以下 metrics 並觀察它們的變化：
-
-1. `prometheus_tsdb_head_series` — TSDB 中有多少 time series？
-2. `prometheus_tsdb_head_samples_appended_total` — 總共收錄了多少筆 sample？（這是一個 Counter，試試用 `rate()` 看看每秒收錄多少筆）
-3. `prometheus_target_scrape_pool_targets` — 每個 scrape pool 有多少 targets？
-
-**練習 3：查看 Node Exporter 的 raw metrics**
-
-打開 http://localhost:9100/metrics，找到以下 metrics 並理解它們的含義：
-
-1. 找到一個 **Counter** 類型的 metric（提示：看 `# TYPE` 那行）
-2. 找到一個 **Gauge** 類型的 metric
-3. 找到 `node_uname_info` metric，它的 labels 裡有什麼資訊？
-
-> **接下來，我們要設定 Alert Rules 和 Alertmanager，讓系統在出問題時自動通知你！**
 
 ---
 

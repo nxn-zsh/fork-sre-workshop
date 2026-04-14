@@ -1,596 +1,294 @@
-# 05 — 實戰：完整監控系統
+# 05 — 看圖、然後把它弄壞：Grafana + Node Exporter + 真實告警
 
 > **時間：30 分鐘**
+
+前一章我們讓 Prometheus 會罵人了——當 rule 觸發時，Alertmanager 會把訊息送到 Discord。但 Prometheus Web UI 的 Graph 很陽春，沒辦法長時間盯著看。這一章我們做三件事：
+
+1. 打開 **Grafana**，直接看 **Node Exporter Full** 這張社群經典 dashboard
+2. 花幾分鐘把幾個關鍵 panel 看懂——CPU、記憶體、硬碟、Load、網路
+3. 用一行 `docker run` 把 VM 的 CPU 榨到 90% 以上，**實際觸發** `HostHighCpuLoad` alert，看著它從 Pending → Firing → 出現在 Discord
 
 ---
 
 ## 目錄
 
-- [學習目標](#學習目標)
-- [完整架構回顧](#完整架構回顧)
-- [Step 1：加入 Blackbox Exporter](#step-1加入-blackbox-exporter)
-  - [什麼是 Blackbox Exporter？](#什麼是-blackbox-exporter)
-  - [建立 Blackbox Exporter 設定](#建立-blackbox-exporter-設定)
-  - [設定 Prometheus scrape Blackbox Exporter](#設定-prometheus-scrape-blackbox-exporter)
-- [Step 2：加入被監控的目標服務](#step-2加入被監控的目標服務)
-- [Step 3：新增 Blackbox Alert Rules](#step-3新增-blackbox-alert-rules)
-- [Step 4：加入 Grafana](#step-4加入-grafana)
-- [Step 5：更新 Docker Compose — 完整版](#step-5更新-docker-compose--完整版)
-- [Step 6：啟動完整 Stack](#step-6啟動完整-stack)
-- [Step 7：探索 Grafana](#step-7探索-grafana)
-  - [建立你的第一個 Dashboard](#建立你的第一個-dashboard)
-- [Step 8：端到端測試 — 觸發 Alert](#step-8端到端測試--觸發-alert)
-- [五步流程驗證](#五步流程驗證)
-- [Next Steps](#next-steps)
-- [小結](#小結)
+- [05 — 看圖、然後把它弄壞：Grafana + Node Exporter + 真實告警](#05--看圖然後把它弄壞grafana--node-exporter--真實告警)
+  - [目錄](#目錄)
+  - [Step 1：Grafana 裡有什麼？](#step-1grafana-裡有什麼)
+    - [登入](#登入)
+    - [看一下 Data source 和 Dashboards 是怎麼來的](#看一下-data-source-和-dashboards-是怎麼來的)
+  - [Step 2：Node Exporter Full](#step-2node-exporter-full)
+    - [CPU Basic](#cpu-basic)
+    - [Memory Basic](#memory-basic)
+    - [Disk Space Used / Disk IOps](#disk-space-used--disk-iops)
+    - [Network Traffic / Load Average](#network-traffic--load-average)
+    - [所有 panel 的底層都是 PromQL](#所有-panel-的底層都是-promql)
+  - [Step 3：Prometheus 2.0 Stats dashboard](#step-3prometheus-20-stats-dashboard)
+  - [Step 4：用 Docker 把 VM CPU 榨乾](#step-4用-docker-把-vm-cpu-榨乾)
+    - [為什麼這個招數在 Docker Desktop 一定會成功](#為什麼這個招數在-docker-desktop-一定會成功)
+    - [開火](#開火)
+  - [Step 5：跟著 alert 走一遍完整流程](#step-5跟著-alert-走一遍完整流程)
+    - [0:00 — Grafana：CPU panel 衝上去](#000--grafanacpu-panel-衝上去)
+    - [~0:30 — Prometheus /alerts：Pending](#030--prometheus-alertspending)
+    - [~5:00 — Firing + Discord 通知](#500--firing--discord-通知)
+    - [停止測試](#停止測試)
+  - [五步流程驗證](#五步流程驗證)
+  - [常見問題排解](#常見問題排解)
+  - [小結與 Next Steps](#小結與-next-steps)
 
 ---
 
-## 學習目標
+## Step 1：Grafana 裡有什麼？
 
-完成本章節後，你將能夠：
+### 登入
 
-- 部署 Blackbox Exporter 來監測 HTTP endpoints
-- 部署 Grafana 並連接 Prometheus 作為 data source
-- 在 Grafana 中建立基本的 Dashboard
-- 從頭到尾走完「蒐集 → 評估 → 告警 → 通知 → 視覺化」的完整流程
-- 手動觸發 alert 並觀察整個告警流程
+打開 http://localhost:3000。預設帳密都是 `admin` / `admin`（由 `docker-compose.yml` 的 `ADMIN_USER` / `ADMIN_PASSWORD` 環境變數控制）。登入後 Grafana 會問要不要改密碼，直接 Skip 就好。
 
----
+### 看一下 Data source 和 Dashboards 是怎麼來的
 
-## 完整架構回顧
+打開左側選單 → **Connections → Data sources**：
 
-到這一章結束時，你的 monitoring stack 會長這樣：
+- 你會看到一個叫 **Prometheus** 的 data source 已經存在了
+- URL 是 `http://prometheus:9090`（service name，不是 localhost）
+- UID 是 `prometheus-main`
 
-```
-        ┌─────────────────────┐
-        │   whoami (範例服務)   │
-        │   :80               │
-        └──────────┬──────────┘
-                   │ HTTP probe
-                   ▼
-    ┌──────────────────────────┐
-    │   Blackbox Exporter      │
-    │   :9115                  │
-    └─────────────┬────────────┘
-                  │ 被 scrape
-                  ▼
-    ┌──────────────────────────┐     ┌──────────────────┐
-    │      Prometheus          │────▶│   Alertmanager   │
-    │      :9090               │     │   :9093          │
-    └──────┬───────────────────┘     └────────┬─────────┘
-           │                                  │
-  ┌────────┼────────────┐                     ▼
-  │        │            │            ┌──────────────────┐
-  ▼        ▼            ▼            │    Discord       │
-┌────┐  ┌────────┐  ┌──────────┐    │    (通知)        │
-│self│  │ Node   │  │Alertmgr  │    └──────────────────┘
-│    │  │Exporter│  │  metrics │
-└────┘  │ :9100  │  └──────────┘
-        └────────┘
+它是被 **provisioning** 機制自動帶進來的——`examples/grafana/provisioning/datasources/datasources.yml` 這個檔案在 Grafana 啟動時會被讀進去。
 
-    ┌──────────────────────────┐
-    │       Grafana            │ ← 查詢 Prometheus
-    │       :3000              │
-    └──────────────────────────┘
-```
+打開 **Dashboards**：
+
+- **Node Exporter Full**
+- **Prometheus 2.0 Stats**
+
+這兩張也是 provisioning 帶進來的——JSON 檔擺在 `examples/grafana/provisioning/dashboards/` 下，Grafana 掃描那個資料夾自動載入。你不需要手動匯入。
 
 ---
 
-## Step 1：加入 Blackbox Exporter
-
-### 什麼是 Blackbox Exporter？
-
-回顧第二章的 Blackbox vs. Whitebox 概念：
-
-- **Node Exporter** 是 whitebox monitoring — 從服務內部回報指標
-- **Blackbox Exporter** 是 blackbox monitoring — 從外部探測服務是否正常
-
-Blackbox Exporter 可以做以下類型的探測（probe）：
-
-| Probe 類型 | 檢查什麼 | 範例 |
-|-----------|---------|------|
-| `http` | HTTP/HTTPS endpoint 是否回應正常 | 網站是否可以連上？回應碼是不是 200？ |
-| `tcp` | TCP port 是否開放 | 資料庫的 port 是否可連線？ |
-| `icmp` | 主機是否可以 ping 到 | 伺服器是否在線上？ |
-| `dns` | DNS 解析是否正常 | 域名能不能正確解析？ |
-
-本課程聚焦在 **HTTP probe**。
-
-### 建立 Blackbox Exporter 設定
-
-建立 `config/blackbox.yml`：
-
-```yaml
-modules:
-  http_2xx:
-    prober: http
-    timeout: 5s
-    http:
-      valid_http_versions: ["HTTP/1.1", "HTTP/2.0"]
-      valid_status_codes: [200]
-      method: GET
-      follow_redirects: true
-      preferred_ip_protocol: "ip4"
-```
-
-這個設定定義了一個名為 `http_2xx` 的 probe module：
-- 使用 HTTP prober
-- 超時時間 5 秒
-- 期望收到 200 狀態碼
-- 使用 GET 方法
-- 跟隨 redirect
-
-### 設定 Prometheus scrape Blackbox Exporter
-
-Blackbox Exporter 的 scrape 設定比較特殊——你要告訴 Prometheus：「去 Blackbox Exporter 查詢某個 URL 的探測結果」。
-
-在 `config/prometheus.yml` 的 `scrape_configs` 中加入：
-
-```yaml
-  # Blackbox Exporter — HTTP 探測
-  - job_name: "blackbox-http"
-    metrics_path: /probe
-    params:
-      module: [http_2xx]
-    static_configs:
-      - targets:
-          - "http://whoami:80"         # 我們要探測的目標 URL
-        labels:
-          service: "whoami"
-          env: "dev"
-    relabel_configs:
-      # 把 target URL 傳給 Blackbox Exporter 的 `target` 參數
-      - source_labels: [__address__]
-        target_label: __param_target
-      # 保留原始 target URL 作為 `instance` label
-      - source_labels: [__param_target]
-        target_label: instance
-      # 實際要 scrape 的地址改成 Blackbox Exporter
-      - target_label: __address__
-        replacement: blackbox-exporter:9115
-```
-
-> 💡 **講師提示：** `relabel_configs` 這段比較進階。可以簡單解釋為：「我們告訴 Prometheus，去問 Blackbox Exporter 這個 URL 的狀態如何」。不需要讓學生完全理解 relabel 的機制，只要知道這是標準的 Blackbox Exporter 設定模板即可。
-
----
-
-## Step 2：加入被監控的目標服務
-
-我們需要一個實際的 HTTP 服務來讓 Blackbox Exporter 探測。使用 `traefik/whoami` — 一個極簡的 HTTP 服務，會回傳自己的資訊。
-
-這個服務會在 Docker Compose 中定義（見 Step 5）。
-
----
-
-## Step 3：新增 Blackbox Alert Rules
-
-在 `config/rules/alerts.yml` 中加入 Blackbox Exporter 相關的 alert rules：
-
-```yaml
-  - name: blackbox-alerts
-    rules:
-      # Alert：HTTP 探測失敗（服務連不上）
-      - alert: EndpointDown
-        expr: probe_success == 0
-        for: 1m
-        labels:
-          severity: critical
-        annotations:
-          summary: "{{ $labels.service }} ({{ $labels.env }}) 服務無法連線"
-          description: "{{ $labels.instance }} 已經超過 1 分鐘無法連線。請立即確認服務狀態。"
-
-      # Alert：HTTP 回應太慢
-      - alert: EndpointSlow
-        expr: probe_duration_seconds > 3
-        for: 2m
-        labels:
-          severity: warning
-        annotations:
-          summary: "{{ $labels.service }} 回應時間過長"
-          description: "{{ $labels.instance }} 的回應時間為 {{ $value | printf \"%.2f\" }} 秒，超過 3 秒門檻。"
-```
-
----
-
-## Step 4：加入 Grafana
-
-Grafana 用來將 Prometheus 的 metrics 視覺化成 Dashboard。
-
-建立 Grafana 的 data source 自動設定，讓 Grafana 啟動時自動連接 Prometheus：
-
-```bash
-mkdir -p config/grafana/provisioning/datasources
-```
-
-建立 `config/grafana/provisioning/datasources/prometheus.yml`：
-
-```yaml
-apiVersion: 1
-
-datasources:
-  - name: Prometheus
-    type: prometheus
-    access: proxy
-    url: http://prometheus:9090
-    isDefault: true
-    editable: true
-```
-
-這個設定告訴 Grafana：「自動把 `http://prometheus:9090` 設定成預設的 Prometheus data source」。
-
----
-
-## Step 5：更新 Docker Compose — 完整版
-
-把所有元件整合到完整的 `docker-compose.yml`：
-
-```yaml
-services:
-  # === 監控核心 ===
-  prometheus:
-    image: prom/prometheus:v3.2.1
-    container_name: prometheus
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./config/rules:/etc/prometheus/rules:ro
-      - prometheus-data:/prometheus
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=7d"
-      - "--web.console.libraries=/etc/prometheus/console_libraries"
-      - "--web.console.templates=/etc/prometheus/consoles"
-    restart: unless-stopped
-
-  # === Exporters ===
-  node-exporter:
-    image: prom/node-exporter:v1.9.0
-    container_name: node-exporter
-    ports:
-      - "9100:9100"
-    restart: unless-stopped
-
-  blackbox-exporter:
-    image: prom/blackbox-exporter:v0.25.0
-    container_name: blackbox-exporter
-    ports:
-      - "9115:9115"
-    volumes:
-      - ./config/blackbox.yml:/etc/blackbox_exporter/config.yml:ro
-    command:
-      - "--config.file=/etc/blackbox_exporter/config.yml"
-    restart: unless-stopped
-
-  # === 告警 ===
-  alertmanager:
-    image: prom/alertmanager:v0.28.1
-    container_name: alertmanager
-    ports:
-      - "9093:9093"
-    volumes:
-      - ./config/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-    command:
-      - "--config.file=/etc/alertmanager/alertmanager.yml"
-    restart: unless-stopped
-
-  # === 視覺化 ===
-  grafana:
-    image: grafana/grafana:11.5.2
-    container_name: grafana
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./config/grafana/provisioning:/etc/grafana/provisioning:ro
-      - grafana-data:/var/lib/grafana
-    environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
-    restart: unless-stopped
-
-  # === 被監控的目標服務 ===
-  whoami:
-    image: traefik/whoami:v1.10
-    container_name: whoami
-    ports:
-      - "8080:80"
-    restart: unless-stopped
-
-volumes:
-  prometheus-data:
-  grafana-data:
-```
-
-### 各服務的 Port 一覽
-
-| 服務 | Port | 網址 |
-|------|------|------|
-| Prometheus | 9090 | http://localhost:9090 |
-| Node Exporter | 9100 | http://localhost:9100 |
-| Blackbox Exporter | 9115 | http://localhost:9115 |
-| Alertmanager | 9093 | http://localhost:9093 |
-| Grafana | 3000 | http://localhost:3000 |
-| whoami（目標服務） | 8080 | http://localhost:8080 |
-
----
-
-## Step 6：啟動完整 Stack
-
-### 完整的 prometheus.yml
-
-先確認你的 `config/prometheus.yml` 包含了所有 scrape 設定：
-
-```yaml
-global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
-
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets: ["alertmanager:9093"]
-
-rule_files:
-  - "/etc/prometheus/rules/*.yml"
-
-scrape_configs:
-  - job_name: "prometheus"
-    static_configs:
-      - targets: ["localhost:9090"]
-
-  - job_name: "node-exporter"
-    static_configs:
-      - targets: ["node-exporter:9100"]
-
-  - job_name: "alertmanager"
-    static_configs:
-      - targets: ["alertmanager:9093"]
-
-  - job_name: "blackbox-http"
-    metrics_path: /probe
-    params:
-      module: [http_2xx]
-    static_configs:
-      - targets:
-          - "http://whoami:80"
-        labels:
-          service: "whoami"
-          env: "dev"
-    relabel_configs:
-      - source_labels: [__address__]
-        target_label: __param_target
-      - source_labels: [__param_target]
-        target_label: instance
-      - target_label: __address__
-        replacement: blackbox-exporter:9115
-```
-
-### 啟動所有服務
-
-```bash
-cd Prometheus/examples/monitoring-stack
-docker compose up -d
-```
-
-### 確認所有 container 都正常運行
-
-```bash
-docker compose ps
-```
-
-你應該看到六個 container 都是 **Up** 狀態。
-
-### 確認 Prometheus Targets
-
-打開 http://localhost:9090/targets，你應該看到四個 scrape jobs：
-
-| Job | Target | 狀態 |
-|-----|--------|------|
-| `prometheus` | `localhost:9090` | UP |
-| `node-exporter` | `node-exporter:9100` | UP |
-| `alertmanager` | `alertmanager:9093` | UP |
-| `blackbox-http` | `http://whoami:80` | UP |
-
-> 💡 **講師提示：** 這是一個好的停下來確認的時間點。確保所有學生的六個 container 都在跑，四個 targets 都是 UP。如果有 DOWN 的，協助排查。
-
----
-
-## Step 7：探索 Grafana
-
-打開 http://localhost:3000
-
-因為我們設定了匿名 admin 存取，所以不需要登入。
-
-### 確認 Data Source
-
-1. 點擊左側選單的 ⚙️ → **Data Sources**
-2. 你應該看到 **Prometheus** 已經自動設定好了
-3. 點擊它，在底部按 **Test** 按鈕——應該顯示 ✅ `Successfully queried the Prometheus API.`
-
-### 用 Explore 試試 PromQL
-
-1. 點擊左側選單的 🔍 **Explore**
-2. 確認上方的 Data Source 選的是 **Prometheus**
-3. 輸入以下查詢試試看：
+## Step 2：Node Exporter Full
+
+點進 **Node Exporter Full** dashboard。
+
+**第一件事**：上方有 `job` 和 `instance` 兩個下拉——把 `job` 選成 `node`，`instance` 選成 `node-exporter:9100`（通常是唯一的選項）。沒選對的話 panel 會空空的。
+
+這張 dashboard 有幾十個 panel，我們只看最上面的 **Quick CPU / Mem / Disk** 以及幾個常用區塊。
+
+### CPU Basic
+
+上方綠色那一堆大數字就是 **Quick CPU / Mem / Disk**——一眼看狀態。往下有 **CPU Basic** 這一區：
+
+- **CPU Busy** — 一個大數字，CPU 使用率的百分比
+- **Sys Load (5m avg)** — 5 分鐘平均 load，大於 CPU 核心數就代表排隊了
+- **Usage by mode** — 把 CPU 時間拆成 user / system / iowait / idle / steal …
+
+| 你會在圖上看到 | 代表什麼 |
+|--------------|---------|
+| `user` 高 | 應用程式本身在吃 CPU |
+| `system` 高 | kernel 在忙（大量 syscall、context switch） |
+| `iowait` 高 | CPU 在等 I/O（通常是硬碟或網路），CPU 其實沒事做 |
+| `steal` 高 | 你跑在 VM 上、hypervisor 被其他 VM 搶走了時間片 |
+
+等一下我們要把 `user` / `system` 那一段衝上去。
+
+### Memory Basic
+
+往下是 **Memory Basic**：
+
+- **RAM Used** — 實際被用掉的 memory（扣掉 cache / buffer 後）
+- **RAM Cache + Buffer** — Linux 會把閒置 memory 拿去做磁碟 cache。**這是好事**，不是 memory leak，空出來時隨時會還。這也是為什麼 Prometheus 的 `MemAvailable_bytes` 比 `MemFree_bytes` 更值得看。
+- **SWAP Used** — 開始用 swap 通常代表 memory 壓力很大了
+
+對應的 PromQL：`node_memory_MemAvailable_bytes` / `node_memory_MemTotal_bytes` — 這就是 Ch03 那行「記憶體使用率」query 的資料來源。
+
+### Disk Space Used / Disk IOps
+
+**Disk Space Used** — 每個 mount point 的使用率，紅色就該清了。注意 dashboard 會幫你過濾掉 tmpfs / overlay 這些假 filesystem。
+
+**Disk IOps / Disk R/W Data** — 每秒幾次 I/O、每秒讀寫多少 bytes。搭配 **Time Spent Doing I/Os**（aka iowait）一起看，可以判斷是不是 I/O 瓶頸。
+
+### Network Traffic / Load Average
+
+**Network Traffic by Interface** — 每張網卡每秒收/送多少 bytes。`eth0` 通常是對外的主介面；`lo` 是 loopback、`docker0` 之類的可以忽略。
+
+**Sys Load** — `load1` / `load5` / `load15`。一個直覺判讀：`load5 > CPU 核心數` 就代表「可以跑的 process 比 CPU 多」，系統在排隊。
+
+### 所有 panel 的底層都是 PromQL
+
+任何 panel 右上角點 **⋮ → Inspect → Panel JSON** 或 **Edit**，你就能看到它在查什麼。例如 CPU Busy 其實就是：
 
 ```promql
-up
+(((count(count(node_cpu_seconds_total{instance="$instance",job="$job"}) by (cpu))) -
+  avg(sum by (mode)(rate(node_cpu_seconds_total{mode="idle",instance="$instance",job="$job"}[5m])))) * 100) /
+  count(count(node_cpu_seconds_total{instance="$instance",job="$job"}) by (cpu))
 ```
 
-你應該看到四筆結果，每筆對應一個 scrape target。
-
-### 建立你的第一個 Dashboard
-
-1. 點擊左側選單的 ➕ → **New Dashboard**
-2. 點擊 **Add visualization**
-3. 選擇 **Prometheus** 作為 data source
-
-**Panel 1：CPU 使用率**
-
-在查詢框輸入：
-
-```promql
-(1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
-```
-
-設定：
-- Panel title: `CPU Usage (%)`
-- 單位：選 **Misc → Percent (0-100)**
-
-點擊右上角的 **Apply** 儲存這個 panel。
-
-**Panel 2：記憶體使用率**
-
-點擊 **Add panel** → **Add a new panel**：
-
-```promql
-(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
-```
-
-設定：
-- Panel title: `Memory Usage (%)`
-- 單位：**Misc → Percent (0-100)**
-
-**Panel 3：服務狀態**
-
-再新增一個 panel：
-
-```promql
-probe_success
-```
-
-設定：
-- Panel title: `Service Status`
-- Visualization type: 改成 **Stat**
-- Value mappings: `1` → `UP`（綠色）、`0` → `DOWN`（紅色）
-
-**儲存 Dashboard**
-
-點擊右上角的 💾 儲存按鈕，取名為 `Monitoring Overview`。
-
-> 💡 **講師提示：** 帶著學生一步一步操作。Grafana 的 UI 很直覺，但第一次用可能會有點不知所措。重點是讓學生體驗「把 PromQL 查詢變成視覺化圖表」的過程。
+看起來嚇人，但拆開來就是 Ch03 那個 `(1 - avg(rate(...idle[5m]))) * 100`，只是 Grafana 幫你用 `$instance` / `$job` 變數把「給人選的下拉」接到 query 裡。
 
 ---
 
-## Step 8：端到端測試 — 觸發 Alert
+## Step 3：Prometheus 2.0 Stats dashboard
 
-現在來走完整個告警流程！
+回到 Dashboards 清單，打開 **Prometheus 2.0 Stats**。這張看的是 **Prometheus 自己**——不是它監測的對象，而是它自己這個 service 健不健康。
 
-### 停掉 whoami 服務
+幾個值得看的 panel：
 
-```bash
-docker compose stop whoami
+| Panel | 回答的問題 |
+|-------|-----------|
+| **Scrape duration** | 每次 scrape 花多久？太慢表示被 scrape 的 target 回應慢 |
+| **Samples appended per second** | 每秒 TSDB 進來多少筆資料 |
+| **Head series** | 目前活躍的 time series 數量——cardinality 爆炸的第一個線索 |
+| **Memory usage** | Prometheus 自己吃了多少 RAM |
+
+這張 dashboard 會讓你未來在「Prometheus 自己變慢/掛掉」時有線索可以看。
+
+---
+
+## Step 4：用 Docker 把 VM CPU 榨乾
+
+現在我們要 **真的觸發** 第 4 章設的那個 `HostHighCpuLoad` alert：
+
+```
+expr: (100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100)) > 90
+for: 5m
 ```
 
-### 觀察 Alert 的狀態變化
+也就是 **CPU 使用率大於 90%、撐 5 分鐘以上**。
 
-1. 打開 http://localhost:9090/alerts
+### 為什麼這個招數在 Docker Desktop 一定會成功
 
-2. 觀察 `EndpointDown` alert 的狀態變化：
-   - **0 秒** — 仍然是 Inactive（Blackbox Exporter 還沒偵測到）
-   - **~15 秒** — 變成 **Pending**（黃色）— `probe_success == 0` 條件成立了
-   - **~1 分 15 秒** — 變成 **Firing**（紅色）— 條件持續超過 `for: 1m`
+Docker Desktop 在 macOS / Windows 底下其實是一個 LinuxKit VM，Node Exporter 讀的是 **VM 的** `/proc`，不是你 Mac/Windows 主機的。
 
-3. 打開 http://localhost:9093 — 確認 Alertmanager 收到了 alert
+- LinuxKit VM 通常只開 2~4 vCPU，想讓 **VM** 的 CPU 炸掉很簡單——在任何 container 裡跑壓測就行
+- 因為 Node Exporter 看的是 VM，VM CPU 炸了 = Node Exporter 回報 CPU 炸了 = `HostHighCpuLoad` alert fires
 
-4. 如果有設定 Discord Webhook — 你應該在 Discord 頻道看到告警訊息 🚨
+（Linux 主機上實測需要更多 worker；下面命令裡的 `--cpu 4` 通常夠了。如果 5 分鐘後沒 fire，把數字調高。）
 
-### 確認 Grafana Dashboard 的反映
+### 開火
 
-回到 Grafana 的 Dashboard，你應該看到：
-
-- `Service Status` panel 的 whoami 變成 **DOWN**（紅色）
-- 其他 metrics 不受影響
-
-### 恢復服務
+打開一個新的 terminal，跑：
 
 ```bash
-docker compose start whoami
+docker run --rm -it --cpus 2 alpine sh -c "apk add --no-cache stress-ng && stress-ng --cpu 4 --timeout 600s"
 ```
 
-觀察：
-1. Prometheus Alerts 頁面：`EndpointDown` 從 Firing → Inactive
-2. Alertmanager：alert 自動 resolved
-3. Discord：收到 ✅ resolved 通知
-4. Grafana Dashboard：whoami 恢復為 **UP**（綠色）
+這一行做的事：
 
-> 💡 **講師提示：** 這是整個課程最精彩的部分！讓學生親自體驗從「服務掛掉」到「收到通知」到「服務恢復」的完整流程。可以讓學生用自己的手機打開 Discord 看通知，增加臨場感。
+- 起一個 `alpine` container，限制它最多用 2 顆 vCPU
+- 在 container 裡裝 `stress-ng`（Linux 經典壓測工具）
+- 叫 `stress-ng` 開 4 個 CPU worker，跑 600 秒（10 分鐘，足夠撐過 `for: 5m`）
+
+跑起來後 **不要關這個 terminal**。
+
+---
+
+## Step 5：跟著 alert 走一遍完整流程
+
+### 0:00 — Grafana：CPU panel 衝上去
+
+回到 Grafana 的 **Node Exporter Full** dashboard。十幾秒內你就會看到：
+
+- **CPU Busy** 從個位數衝到 90%+
+- **CPU Basic** 的 usage by mode 那條線，`user` / `system` 佔滿整片
+- **Sys Load** 的 load average 也開始爬升
+
+這就是 monitoring 的第一個價值——你**看得到**系統在發生什麼事，不用 `ssh` 進去跑 `top`。
+
+### ~0:30 — Prometheus /alerts：Pending
+
+打開 http://localhost:9090/alerts，找到 `HostHighCpuLoad`：
+
+- 前 2 分鐘左右它還是 **Inactive**（rate 需要 2 分鐘視窗才能算穩）
+- 接著變 **Pending**（黃色）—— `expr` 成立了，但 `for: 5m` 還沒到
+- Pending 期間 Prometheus 會顯示「已經等了多久、還剩多少秒」
+
+這段 Pending 時間是 alert 設計的精華：防止 CPU 短暫飆一下就驚動值班工程師。
+
+### ~5:00 — Firing + Discord 通知
+
+`for` 倒數結束，狀態變 **Firing**（紅色）。這時候：
+
+1. Prometheus 把 firing alert **push** 給 Alertmanager（AM `9093`）
+2. Alertmanager 按 `group_wait: 1m` 等 1 分鐘（方便把相關 alert 合併）
+3. 接著發 Discord——你應該在頻道裡看到 ⚠️ 開頭的訊息，內容包含 alert name、instance、severity、觸發時間
+
+全程大概 6~7 分鐘從「開始壓測」到「Discord 響」——中間每一段都有設計過的延遲。
+
+### 停止測試
+
+回到跑 `stress-ng` 的 terminal，`Ctrl+C` 停掉。
+
+看著它走另一條路徑：
+
+1. CPU 掉下來，Grafana 的 CPU 圖馬上回落
+2. `rate(...)` 窗口 2 分鐘後，`expr` 不再成立，Prometheus 把 alert 從 Firing → Inactive
+3. Alertmanager 依 `send_resolved: true` 再發一則 ✅ 訊息到 Discord
 
 ---
 
 ## 五步流程驗證
 
-回顧第一章提到的五步流程，確認你已經親手建立了每一步：
+第 1 章提到的五步流程——到這裡你 **全部** 親手走過了：
 
 ```
 ✅ 蒐集 (Collect)
-   Prometheus 每 15 秒 scrape：自己、Node Exporter、Alertmanager、Blackbox Exporter
+   Prometheus 每 30 秒 scrape：自己、Go app、Node Exporter、Alertmanager
 
 ✅ 評估 (Evaluate)
-   Prometheus 每 15 秒評估 alert rules：TargetDown、EndpointDown、HighMemoryUsage 等
+   Prometheus 每 15 秒評估 rules（HostHighCpuLoad、HostOutOfMemory、InstanceDown…）
 
 ✅ 告警 (Alert)
-   Alert 從 Inactive → Pending → Firing，Prometheus 把 Firing 的 alert 送給 Alertmanager
+   stress-ng 壓測 → 條件成立 → Pending → Firing
 
 ✅ 通知 (Notify)
-   Alertmanager 分組、路由，送出 Discord 通知
+   Alertmanager 分組、等 group_wait、送 Discord webhook
 
 ✅ 視覺化 (Visualize)
-   Grafana 查詢 Prometheus，顯示即時 Dashboard
+   Grafana 拿 Prometheus 做 data source，Node Exporter Full 即時畫圖
 ```
 
 ---
 
-## Next Steps
+## 常見問題排解
 
-恭喜！你已經從零建立了一套完整的 monitoring 系統。以下是進階的學習方向：
+**1. Grafana panel 全部空白 / "No data"**
 
-### P0 — 現在就可以做
+- 上方 `job` / `instance` 下拉沒選對。選 `job=node` + `instance=node-exporter:9100`
+- Prometheus Targets 頁面（http://localhost:9090/targets）確認 `node` target 是 UP
+- Node Exporter 掛了：`docker compose logs node-exporter`
 
-- [ ] 在 Grafana 中建立更多 panels（硬碟使用率、網路流量等）
-- [ ] 修改 alert rules 的 threshold，觀察不同的觸發行為
-- [ ] 試著新增另一個 HTTP 服務（例如 `nginx`）作為 Blackbox 探測目標
+**2. 5 分鐘過了 `HostHighCpuLoad` 還是 Pending**
 
-### P1 — 深入理解
+- 看 Grafana 上的 CPU Busy 確實有 >90%，還是只有 70~80%？後者的話把 stress-ng 的 `--cpu` 數字加大
+- 或在跑壓測的同時開第二個 terminal 再加一輪 `stress-ng`
+- 記住 `rate([2m])` 需要 2 分鐘的資料才會穩，「5 分鐘 for」實際上是從 rate 穩定後才開始算
 
-- [ ] 研究 Alertmanager 的 `inhibit_rules`（alert 抑制機制）
-- [ ] 學習 Grafana 的 variables 和 templating（動態 Dashboard）
-- [ ] 了解 Prometheus 的 service discovery（自動發現 targets）
+**3. Discord 沒收到通知**
 
-### P2 — 進階實戰
+- Ch04 的 webhook 設對了嗎？`cat prometheus/secrets/discord/webhook-default` 看看是不是還是 dummy URL
+- `docker compose logs alertmanager` 看有沒有 send 失敗的錯誤
+- Alertmanager UI（http://localhost:9093）能看到 firing alert 嗎？有 = Prometheus→AM 沒問題，問題在 AM→Discord
 
-- [ ] 為你自己的應用程式加上 `/metrics` endpoint（application instrumentation）
-- [ ] 設定 Prometheus 的 remote write（長期儲存方案）
-- [ ] 建立 Grafana alerting（Grafana 自己的告警機制）
-- [ ] 探索 Loki（logs）和 Tempo（traces）完善可觀測性
+**4. Dashboard 面板顯示 "Datasource not found"**
 
-### 推薦學習資源
-
-- [PromLabs Training](https://training.promlabs.com/) — 免費的 Prometheus 線上教學
-- [Prometheus 官方文件](https://prometheus.io/docs/)
-- [PromQL Cheat Sheet](https://promlabs.com/promql-cheat-sheet/)
-- [Grafana 官方文件](https://grafana.com/docs/)
-- [Awesome Prometheus Alerts](https://awesome-prometheus-alerts.grep.to/) — 現成的 alert rule 範本集
-- [Alertmanager 官方文件](https://prometheus.io/docs/alerting/latest/alertmanager/)
+通常是社群 JSON 裡 `${DS_PROMETHEUS}` placeholder 沒替換。我們的 JSON 已經預先替換成 `prometheus-main` 了；如果你自己從 grafana.com 匯入新 dashboard，記得做同樣替換，或在匯入時手動選 data source。
 
 ---
 
-## 小結
+## 小結與 Next Steps
 
-- **Blackbox Exporter** 從外部探測 HTTP endpoints 是否正常，是 blackbox monitoring 的核心工具
-- **Grafana** 連接 Prometheus data source，把 metrics 視覺化成 Dashboard
-- 完整的 monitoring stack = **Prometheus + Node Exporter + Blackbox Exporter + Alertmanager + Grafana**
-- 五步流程：**蒐集 → 評估 → 告警 → 通知 → 視覺化**——你已經全部走過一遍了
-- 透過手動停掉服務，你親自驗證了 alert 從觸發到通知的完整流程
+**本章重點回顧**
 
-> **恭喜你完成了 Prometheus Monitoring Workshop！🎉**
->
-> 你現在擁有建立和管理一套基本監控系統的能力。繼續探索 Next Steps 中的進階主題，逐步提升你的 SRE 技能！
+- Grafana 用 **provisioning** 自動帶 data source 和 dashboard JSON——不用手動點設定
+- **Node Exporter Full**是看主機健康；**Prometheus 2.0 Stats**用來監測 Prometheus 自己
+- 所有 Grafana panel 本質上都是 PromQL query，右鍵 Edit 就能看到底層 query
+- Docker Desktop 的 LinuxKit VM 架構讓「用 container 觸發 host-level alert」變得很容易——在教學場景反而是優點
+- 一個 alert 的真實生命週期：`expr` 成立 → Pending（等 `for`）→ Firing → Alertmanager group_wait → Discord → （問題解決）→ Resolved 通知
 
+**推薦學習資源**
+
+- [PromLabs Training](https://training.promlabs.com/)
+- [Prometheus 官方文件](https://prometheus.io/docs/)
+- [PromQL Cheat Sheet](https://promlabs.com/promql-cheat-sheet/)
+- [Grafana 官方文件](https://grafana.com/docs/)
+- [Awesome Prometheus Alerts](https://awesome-prometheus-alerts.grep.to/) — 現成 alert rule 範本集
 ---
 
 [← 上一章：Alertmanager 告警系統](04-alerting.md)

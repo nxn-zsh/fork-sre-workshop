@@ -24,7 +24,7 @@ scrape_configs:
           - "demo.promlabs.com:10001"
           - "demo.promlabs.com:10002"
 
-  - job_name: "go_practice"
+  - job_name: "app"
     static_configs:
       - targets:
           - "app:8088"

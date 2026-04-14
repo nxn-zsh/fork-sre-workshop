@@ -199,12 +199,14 @@ Step 3 — 看 Logs（找出根因）
 ```
 monitoring stack
 ├── Prometheus      — 自動蒐集 metrics、評估告警規則
+├── Node Exporter   — 抓取硬體指標（CPU、記憶體、硬碟）
 ├── Alertmanager    — 接收告警並發送通知到 Discord
+└── Grafana         — 視覺化 metrics，建立即時 Dashboard
 ```
 
 
 ```
-蒐集 (Collect) → 評估 (Evaluate) → 告警 (Alert) → 通知 (Notify)
+蒐集 (Collect) → 評估 (Evaluate) → 告警 (Alert) → 通知 (Notify) → 視覺化 (Visualize)
 ```
 
 
