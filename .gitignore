@@ -1,2 +1,5 @@
 CLAUDE.md
 .claude
+.env
+.DS_Store
+Prometheus/examples/prometheus/secrets/

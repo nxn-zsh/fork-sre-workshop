@@ -1,0 +1,88 @@
+networks:
+  monitoring:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  alertmanager-data:
+
+services:
+  app:
+    build: ./app
+    ports:
+      - "8088:8088"
+    networks:
+      - monitoring
+
+  prometheus:
+    image: prom/prometheus:v3.11.2
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alert_rules.yml:/alert_rules.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - monitoring
+    depends_on:
+      - app
+      - alertmanager
+
+  node-exporter:
+    image: prom/node-exporter:v1.11.1
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--path.rootfs=/rootfs'
+    networks:
+      - monitoring
+
+  alertmanager:
+    image: prom/alertmanager:v0.32.0
+    container_name: alertmanager
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+      - ./prometheus/secrets:/etc/alertmanager/secrets:ro
+    ports:
+      - "9093:9093"
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--log.level=debug'
+    environment:
+      - TZ=Asia/Taipei
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9093/-/healthy || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+        - monitoring
+
+  grafana:
+    image: grafana/grafana:12.4.2
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+    networks:
+      - monitoring
+    depends_on:
+        - prometheus
+        - alertmanager

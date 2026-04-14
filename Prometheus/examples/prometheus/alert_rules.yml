@@ -1,0 +1,128 @@
+groups:
+  - name: alert_manager_rules
+    rules:
+      - alert: InstanceDown
+        expr: up == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: alertmanager
+        annotations:
+          summary: "Instance {{ $labels.instance }} down"
+          description: "{{ $labels.instance }} of job {{ $labels.job }} has been down for more than 5 minutes."
+
+  - name: node_exporter_alerts
+    interval: 30s
+    rules:
+      # CRITICAL - Hardware issues requiring immediate attention
+      - alert: HostOutOfMemory
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100) < 10
+        for: 2m
+        labels:
+          severity: critical
+          component: node_exporter
+        annotations:
+          summary: "Host out of memory (instance {{ $labels.instance }})"
+          description: "Node memory is filling up (< 10% available)\n  VALUE = {{ $value | humanize }}%\n  LABELS = {{ $labels }}"
+
+      - alert: HostOutOfDiskSpace
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"} * 100) < 10
+        for: 2m
+        labels:
+          severity: critical
+          component: node_exporter
+        annotations:
+          summary: "Host out of disk space (instance {{ $labels.instance }})"
+          description: "Disk is almost full (< 10% left)\n  VALUE = {{ $value | humanize }}%\n  LABELS = {{ $labels }}"
+
+      - alert: HostHighCpuLoad
+        expr: (100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100)) > 90
+        for: 5m
+        labels:
+          severity: critical
+          component: node_exporter
+        annotations:
+          summary: "Host high CPU load (instance {{ $labels.instance }})"
+          description: "CPU load is > 90%\n  VALUE = {{ $value | humanize }}%\n  LABELS = {{ $labels }}"
+
+      - alert: HostSwapIsFillingUp
+        expr: (1 - (node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes)) * 100 > 80
+        for: 2m
+        labels:
+          severity: critical
+          component: node_exporter
+        annotations:
+          summary: "Host swap is filling up (instance {{ $labels.instance }})"
+          description: "Swap is filling up (>80%)\n  VALUE = {{ $value | humanize }}%\n  LABELS = {{ $labels }}"
+
+      - alert: HostSystemdServiceCrashed
+        expr: node_systemd_unit_state{state="failed"} == 1
+        for: 0s
+        labels:
+          severity: critical
+          component: node_exporter
+        annotations:
+          summary: "Host systemd service crashed (instance {{ $labels.instance }})"
+          description: "systemd service {{ $labels.name }} has crashed\n  LABELS = {{ $labels }}"
+
+      # WARNING - Resource pressure, needs attention
+      - alert: HostMemoryUnderMemoryPressure
+        expr: (rate(node_vmstat_pgmajfault[1m]) > 1000)
+        for: 2m
+        labels:
+          severity: warning
+          component: node_exporter
+        annotations:
+          summary: "Host memory under memory pressure (instance {{ $labels.instance }})"
+          description: "The node is under heavy memory pressure. High rate of major page faults\n  VALUE = {{ $value | humanize }}\n  LABELS = {{ $labels }}"
+
+      - alert: HostUnusualDiskReadLatency
+        expr: (rate(node_disk_read_time_seconds_total[1m]) / rate(node_disk_reads_completed_total[1m]) > 0.1) and rate(node_disk_reads_completed_total[1m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: node_exporter
+        annotations:
+          summary: "Host unusual disk read latency (instance {{ $labels.instance }})"
+          description: "Disk latency is growing (read operations > 100ms)\n  VALUE = {{ $value | humanize }}s\n  LABELS = {{ $labels }}"
+
+      - alert: HostUnusualDiskWriteLatency
+        expr: (rate(node_disk_write_time_seconds_total[1m]) / rate(node_disk_writes_completed_total[1m]) > 0.1) and rate(node_disk_writes_completed_total[1m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+          component: node_exporter
+        annotations:
+          summary: "Host unusual disk write latency (instance {{ $labels.instance }})"
+          description: "Disk latency is growing (write operations > 100ms)\n  VALUE = {{ $value | humanize }}s\n  LABELS = {{ $labels }}"
+
+      - alert: HostDiskWillFillIn24Hours
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"} * 100 < 25) and predict_linear(node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"}[1h], 24 * 3600) < 0
+        for: 2m
+        labels:
+          severity: warning
+          component: node_exporter
+        annotations:
+          summary: "Host disk will fill in 24 hours (instance {{ $labels.instance }})"
+          description: "Filesystem is predicted to run out of space within the next 24 hours at current write rate\n  VALUE = {{ $value | humanize }}%\n  LABELS = {{ $labels }}"
+
+      - alert: HostLowMemory
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100) < 25
+        for: 5m
+        labels:
+          severity: warning
+          component: node_exporter
+        annotations:
+          summary: "Host low memory (instance {{ $labels.instance }})"
+          description: "Node memory is getting low (< 25% available)\n  VALUE = {{ $value | humanize }}%\n  LABELS = {{ $labels }}"
+
+      # INFO - Awareness alerts
+      - alert: HostDiskSpaceUsage
+        expr: (node_filesystem_avail_bytes{mountpoint="/",fstype!="rootfs"} / node_filesystem_size_bytes{mountpoint="/",fstype!="rootfs"} * 100) < 50
+        for: 5m
+        labels:
+          severity: info
+          component: node_exporter
+        annotations:
+          summary: "Host disk space usage notice (instance {{ $labels.instance }})"
+          description: "Disk space is below 50%\n  VALUE = {{ $value | humanize }}%\n  LABELS = {{ $labels }}"
