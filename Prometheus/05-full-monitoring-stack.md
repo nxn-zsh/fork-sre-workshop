@@ -1,8 +1,7 @@
 # 05 — 看圖、然後把它弄壞：Grafana + Node Exporter + 真實告警
 
-> **時間：30 分鐘**
 
-前一章我們讓 Prometheus 會罵人了——當 rule 觸發時，Alertmanager 會把訊息送到 Discord。但 Prometheus Web UI 的 Graph 很陽春，沒辦法長時間盯著看。這一章我們做三件事：
+前一章我們讓 Alert rule 觸發，Alertmanager 會把訊息送到 Discord。但 Prometheus Web UI 的 Graph 很陽春，沒辦法長時間盯著看。這一章我們做三件事：
 
 1. 打開 **Grafana**，直接看 **Node Exporter Full** 這張社群經典 dashboard
 2. 花幾分鐘把幾個關鍵 panel 看懂——CPU、記憶體、硬碟、Load、網路

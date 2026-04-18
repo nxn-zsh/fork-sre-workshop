@@ -3,3 +3,4 @@ CLAUDE.md
 .env
 .DS_Store
 Prometheus/examples/prometheus/secrets/
+.idea
