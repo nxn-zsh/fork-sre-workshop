@@ -1,4 +1,4 @@
-# 05 — 看圖、然後把它弄壞：Grafana + Node Exporter + 真實告警
+# 05 — Grafana + Node Exporter + 真實告警
 
 
 前一章我們讓 Alert rule 觸發，Alertmanager 會把訊息送到 Discord。但 Prometheus Web UI 的 Graph 很陽春，沒辦法長時間盯著看。這一章我們做三件事：
@@ -11,7 +11,7 @@
 
 ## 目錄
 
-- [05 — 看圖、然後把它弄壞：Grafana + Node Exporter + 真實告警](#05--看圖然後把它弄壞grafana--node-exporter--真實告警)
+- [05 — Grafana + Node Exporter + 真實告警](#05--grafana--node-exporter--真實告警)
   - [目錄](#目錄)
   - [Step 1：Grafana 裡有什麼？](#step-1grafana-裡有什麼)
     - [登入](#登入)
@@ -24,8 +24,7 @@
     - [所有 panel 的底層都是 PromQL](#所有-panel-的底層都是-promql)
   - [Step 3：Prometheus 2.0 Stats dashboard](#step-3prometheus-20-stats-dashboard)
   - [Step 4：用 Docker 把 VM CPU 榨乾](#step-4用-docker-把-vm-cpu-榨乾)
-    - [為什麼這個招數在 Docker Desktop 一定會成功](#為什麼這個招數在-docker-desktop-一定會成功)
-    - [開火](#開火)
+    - [Firing](#firing)
   - [Step 5：跟著 alert 走一遍完整流程](#step-5跟著-alert-走一遍完整流程)
     - [0:00 — Grafana：CPU panel 衝上去](#000--grafanacpu-panel-衝上去)
     - [~0:30 — Prometheus /alerts：Pending](#030--prometheus-alertspending)
@@ -151,8 +150,6 @@ for: 5m
 
 也就是 **CPU 使用率大於 90%、撐 5 分鐘以上**。
 
-### 為什麼這個招數在 Docker Desktop 一定會成功
-
 Docker Desktop 在 macOS / Windows 底下其實是一個 LinuxKit VM，Node Exporter 讀的是 **VM 的** `/proc`，不是你 Mac/Windows 主機的。
 
 - LinuxKit VM 通常只開 2~4 vCPU，想讓 **VM** 的 CPU 炸掉很簡單——在任何 container 裡跑壓測就行
@@ -160,7 +157,7 @@ Docker Desktop 在 macOS / Windows 底下其實是一個 LinuxKit VM，Node Expo
 
 （Linux 主機上實測需要更多 worker；下面命令裡的 `--cpu 4` 通常夠了。如果 5 分鐘後沒 fire，把數字調高。）
 
-### 開火
+### Firing
 
 打開一個新的 terminal，跑：
 
@@ -218,7 +215,7 @@ docker run --rm -it --cpus 2 alpine sh -c "apk add --no-cache stress-ng && stres
 
 1. CPU 掉下來，Grafana 的 CPU 圖馬上回落
 2. `rate(...)` 窗口 2 分鐘後，`expr` 不再成立，Prometheus 把 alert 從 Firing → Inactive
-3. Alertmanager 依 `send_resolved: true` 再發一則 ✅ 訊息到 Discord
+3. Alertmanager 依 `send_resolved: true` 再發一則訊息到 Discord
 
 ---
 
@@ -227,19 +224,19 @@ docker run --rm -it --cpus 2 alpine sh -c "apk add --no-cache stress-ng && stres
 第 1 章提到的五步流程——到這裡你 **全部** 親手走過了：
 
 ```
-✅ 蒐集 (Collect)
+蒐集 (Collect)
    Prometheus 每 30 秒 scrape：自己、Go app、Node Exporter、Alertmanager
 
-✅ 評估 (Evaluate)
+評估 (Evaluate)
    Prometheus 每 15 秒評估 rules（HostHighCpuLoad、HostOutOfMemory、InstanceDown…）
 
-✅ 告警 (Alert)
+告警 (Alert)
    stress-ng 壓測 → 條件成立 → Pending → Firing
 
-✅ 通知 (Notify)
+通知 (Notify)
    Alertmanager 分組、等 group_wait、送 Discord webhook
 
-✅ 視覺化 (Visualize)
+視覺化 (Visualize)
    Grafana 拿 Prometheus 做 data source，Node Exporter Full 即時畫圖
 ```
 
@@ -278,7 +275,7 @@ docker run --rm -it --cpus 2 alpine sh -c "apk add --no-cache stress-ng && stres
 - Grafana 用 **provisioning** 自動帶 data source 和 dashboard JSON——不用手動點設定
 - **Node Exporter Full**是看主機健康；**Prometheus 2.0 Stats**用來監測 Prometheus 自己
 - 所有 Grafana panel 本質上都是 PromQL query，右鍵 Edit 就能看到底層 query
-- Docker Desktop 的 LinuxKit VM 架構讓「用 container 觸發 host-level alert」變得很容易——在教學場景反而是優點
+- Docker Desktop 的 LinuxKit VM 架構讓「用 container 觸發 host-level alert」變得很容易
 - 一個 alert 的真實生命週期：`expr` 成立 → Pending（等 `for`）→ Firing → Alertmanager group_wait → Discord → （問題解決）→ Resolved 通知
 
 **推薦學習資源**

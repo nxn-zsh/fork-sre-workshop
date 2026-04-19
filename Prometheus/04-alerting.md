@@ -320,14 +320,14 @@ docker compose exec alertmanager amtool check-config /etc/alertmanager/alertmana
 ### 本章重點回顧
 
 - Alert Rules 定義在 YAML 檔案中，包含 `expr`（條件）、`for`（持續時間）、`labels`（分類）、`annotations`（說明）
-- **Severity 等級**：`critical`（立即處理）、`warning`（儘快處理）、`info`（知悉即可）
+- **Severity 等級**：`critical`（立即處理）、`warning`（儘快處理）、`info`（通知）
 - **Alertmanager** 負責 routing、grouping、deduplication，最終送出通知
 - Alert 有三種狀態：**Inactive** → **Pending** → **Firing**
 - `for` 的設計可以有效減少誤報（false positive）
 
 ### 練習題
 
-**練習 1：觸發一個 Alert**
+**觸發一個 Alert**
 
 手動停掉 Node Exporter 來觸發 `InstanceDown` alert：
 
@@ -351,21 +351,6 @@ docker compose start node-exporter
 ```
 
 觀察 alert 自動恢復為 Inactive。
-
-**練習 2：自訂一條 Alert Rule**
-
-在 `prometheus/alert_rules.yml` 中新增一條 alert rule，監測 Prometheus 自己的 TSDB：
-
-- 名稱：`PrometheusTSDBTooManySeries`
-- 條件：`prometheus_tsdb_head_series > 10000`（time series 數量超過 10000 條）
-- 持續時間：5 分鐘
-- 嚴重等級：warning
-
-新增完 reload Prometheus：
-
-```bash
-docker compose kill -s SIGHUP prometheus
-```
 
 
 ---
