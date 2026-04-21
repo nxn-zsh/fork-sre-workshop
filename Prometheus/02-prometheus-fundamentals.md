@@ -1,10 +1,10 @@
-# 02 — Prometheus 核心概念
+# 02 — Prometheus
 
 ---
 
 ## 目錄
 
-- [02 — Prometheus 核心概念](#02--prometheus-核心概念)
+- [02 — Prometheus](#02--prometheus)
   - [目錄](#目錄)
   - [Prometheus 是什麼？ (pruh·mee·thee·uhs)](#prometheus-是什麼-pruhmeetheeuhs)
   - [Pull-based vs. Push-based](#pull-based-vs-push-based)
@@ -16,23 +16,10 @@
   - [Time Series 資料模型](#time-series-資料模型)
     - [什麼是 Time Series？](#什麼是-time-series)
     - [資料的四個組成部分](#資料的四個組成部分)
-  - [Metric 的四種類型](#metric-的四種類型)
-    - [Counter — 只增不減的計數器](#counter--只增不減的計數器)
-    - [Gauge — 可升可降的儀表](#gauge--可升可降的儀表)
-    - [Histogram — 分布直方圖](#histogram--分布直方圖)
-    - [Summary — 摘要](#summary--摘要)
-    - [該用哪一種？](#該用哪一種)
-  - [Labels — 資料的維度標籤](#labels--資料的維度標籤)
-    - [為什麼需要 Labels？](#為什麼需要-labels)
-    - [常見的 Label 設計](#常見的-label-設計)
-    - [Label 的注意事項](#label-的注意事項)
-  - [PromQL 入門](#promql-入門)
-    - [基本查詢](#基本查詢)
-    - [Label 標籤](#label-標籤)
-    - [Range Vector — 時間範圍查詢](#range-vector--時間範圍查詢)
-    - [常用函數](#常用函數)
-    - [實用查詢範例](#實用查詢範例)
-  - [Metrics 的傳輸格式](#metrics-的傳輸格式)
+  - [把 Prometheus 跑起來](#把-prometheus-跑起來)
+    - [事前準備](#事前準備)
+    - [Step 1：/examples 裡有什麼？](#step-1examples-裡有什麼)
+    - [Step 2：啟動整個 stack](#step-2啟動整個-stack)
   - [小結](#小結)
 
 ---
@@ -84,7 +71,7 @@ Pull-based（Prometheus）:
 
 ### Core Components
 
-我們的 monitoring 系統由四個核心元件組成，每個元件各司其職：
+我們的 monitoring 系統由四個元件組成，每個元件各司其職：
 
 | 元件 | 負責什麼 | 類比 |
 |------|---------|------|
@@ -143,264 +130,86 @@ http_requests_total{service="api", env="prod"} @ 14:00:00 = 1000
 
 ---
 
-## Metric 的四種類型
+## 把 Prometheus 跑起來
 
-Prometheus 定義了四種 metric 類型，每種適用於不同的場景。
+到這裡我們已經知道 Prometheus 是什麼、架構長什麼樣子、資料怎麼存。接下來在進入 metric 類型和 PromQL 之前，先把整個 stack 跑起來，範例查詢才有真實的資料可以對照。
 
-### Counter — 只增不減的計數器
+完整的範例 stack 放在 `Prometheus/examples/`
 
-**特性**：只會往上增加（或在重啟時歸零），永遠不會減少。
+### 事前準備
 
-**適用場景**：累計事件的總次數。
+在 Docker workshop 中已經安裝了 Docker、Docker Compose、git。確認它們能正常使用：
 
-```
-# 範例：總共處理了多少個 HTTP 請求？
-http_requests_total{method="GET", path="/api/users"} = 15234
-
-# 範例：總共發生了多少個錯誤？
-http_errors_total{service="api", code="500"} = 42
+```bash
+docker --version
+docker compose version
 ```
 
-**比喻**：汽車的里程表——只會往上跳，不會倒退。
+建議也裝一個瀏覽器擴充功能，讓 `/metrics` 的原始輸出比較好讀：
 
-### Gauge — 可升可降的儀表
+- [Prometheus Formatter Extension](https://chromewebstore.google.com/detail/jhfbpphccndhifmpfbnpobpclhedckbb?utm_source=item-share-cb)
 
-**特性**：數值可以增加也可以減少，反映某個當下的狀態。
+![raw metrics page](./assets/metricspage.png)
 
-**適用場景**：記錄目前的數值
+裝之後有縮排、顏色、可以收折：
 
-```
-# 範例：目前的記憶體使用量
-memory_usage_bytes{instance="server-01"} = 4294967296
+![formatted metrics page](./assets/formatter.png)
 
-# 範例：目前的 CPU 溫度
-node_hwmon_temp_celsius{chip="coretemp"} = 65.0
+### Step 1：/examples 裡有什麼？
 
-# 範例：目前有多少個活躍的連線？
-active_connections{service="api"} = 127
-```
-
-**比喻**：溫度計——溫度會上升也會下降
-
-### Histogram — 分布直方圖
-
-**特性**：把觀測值分配到預先定義的 buckets（區間）裡，同時記錄總數和總和。
-
-**適用場景**：分析數值的分布情況（例如：延遲分布）。
+先用 `ls` 看一眼：
 
 ```
-# 範例：HTTP 請求回應時間的分布
-# 有多少請求在 100ms 以內完成？ 500ms 以內？ 1s 以內？
-http_request_duration_seconds_bucket{le="0.1"}  = 8000   # ≤ 100ms
-http_request_duration_seconds_bucket{le="0.5"}  = 9500   # ≤ 500ms
-http_request_duration_seconds_bucket{le="1.0"}  = 9900   # ≤ 1s
-http_request_duration_seconds_bucket{le="+Inf"} = 10000  # 全部
-http_request_duration_seconds_count             = 10000  # 總請求數
-http_request_duration_seconds_sum               = 3250.5 # 總時間（秒）
+Prometheus/examples/
+├── docker-compose.yml        # 把下面所有服務串在一起
+├── prometheus/
+│   ├── prometheus.yml        # scrape 設定 + alerting 指向 alertmanager
+│   ├── alert_rules.yml       # 告警規則（下一章會用到）
+│   ├── alertmanager.yml      # Alertmanager 設定（下一章會用到）
+│   └── secrets/              # Discord webhook 的 secret 放這裡（gitignored）
+└── grafana/
+    └── provisioning/         # Grafana data sources + dashboard 預載
 ```
 
-**比喻**：考試成績分布圖——多少人 60 分以下、60-70、70-80、80-90、90 以上。
+示範用的 Go 服務其實在前面的 CI/CD 目錄下（`cicd/examples/sample-app/`），docker-compose.yml 用跨目錄的 build context（`build: ../../cicd/examples/sample-app`）把它帶進來。
 
-### Summary — 摘要
+下一章會深入這個 Go 服務和 `prometheus/prometheus.yml`。
 
-**特性**：在客戶端直接計算百分位數（quantile），結果不能跨實例聚合
+### Step 2：啟動整個 stack
 
-**適用場景**：需要精確百分位數時使用
-
-```
-# 範例：HTTP 請求回應時間的百分位數
-http_request_duration_seconds{quantile="0.5"}  = 0.15   # 中位數是 150ms
-http_request_duration_seconds{quantile="0.9"}  = 0.45   # P90 是 450ms
-http_request_duration_seconds{quantile="0.99"} = 1.2    # P99 是 1.2s
+```bash
+docker compose up -d
 ```
 
-### 該用哪一種？
+確認每個 service 都在跑：
 
-| 情境 | 建議使用 | 原因 |
-|------|---------|------|
-| 計算請求總數 | **Counter** | 累計值，只增不減 |
-| 記錄記憶體使用量 | **Gauge** | 數值會上下變動 |
-| 分析回應時間的分布 | **Histogram** | 可以在 server-side 計算百分位，可跨實例聚合 |
-| 需要精確百分位數 | **Summary** | 在 client-side 直接計算 |
-
-``` 對初學者來說，只需要理解 **Counter**（累計次數）和 **Gauge**（當下數值）就足以應付大部分場景。Histogram 和 Summary 可以提一下概念，實作時再深入。
-```
----
-
-## Labels — 資料的維度標籤
-
-### 為什麼需要 Labels？
-
-如果沒有 Labels，你只能知道「總共有 15234 個 HTTP 請求」。但有了 Labels，你可以回答更細緻的問題：
-
-```
-# 沒有 labels — 只有一個數字
-http_requests_total = 15234
-
-# 有 labels — 可以從不同維度分析
-http_requests_total{service="api", method="GET", env="prod"}    = 10000
-http_requests_total{service="api", method="POST", env="prod"}   = 3000
-http_requests_total{service="api", method="GET", env="staging"} = 2234
+```bash
+docker compose ps
 ```
 
-Labels 讓你可以：
+你應該看到 5 個 services：`app`、`prometheus`、`node-exporter`、`alertmanager`、`grafana`。如果有哪個不是 **running**，用 `docker compose logs <service-name>` 看一下。
 
-- **Filtering**：只看 production 環境的資料（`env="prod"`）
-- **Grouping**：按 service 分組統計（`by (service)`）
-- **Routing**：把 critical alerts 送到特定的 Discord 頻道（`severity="critical"`）
-
-### 常見的 Label 設計
-
-| Label | 用途 | 範例值 |
-|-------|------|--------|
-| `service` | 哪個服務 | `grafana`, `api`, `prometheus` |
-| `env` | 哪個環境 | `prod`, `staging`, `dev` |
-| `instance` | 哪個instance | `10.0.1.5:8080` |
-| `method` | HTTP method | `GET`, `POST`, `PUT` |
-| `status` | HTTP stautus | `200`, `404`, `500` |
-| `severity` | Alert 嚴重度 | `critical`, `warning`, `info` |
-
-### Label 的注意事項
-
-- 每一組唯一的 label 組合 = 一條獨立的 time series
-- Label 的值不要用「高基數」的東西（如 user ID、request ID），否則會產生爆量的 time series
-- Label 名稱用小寫加底線（例：`response_code`），值用小寫（例：`success`）
-
----
-
-## PromQL 入門
-
-**PromQL（Prometheus Query Language）** 是 Prometheus 的查詢語言。你可以用它在 Prometheus Web UI 或 Grafana 中查詢和分析 metrics。
-
-### 基本查詢
-
-```promql
-# 查詢一個 metric 的所有 time series
-up
-
-# 查詢特定 metric
-prometheus_tsdb_head_samples_appended_total
-```
-
-`up` 是一個特殊的 metric，Prometheus 自動為每個 scrape target 生成：
-- `up == 1` 表示 target 正常
-- `up == 0` 表示 target 掛了
-
-### Label 標籤
-
-```promql
-# 精確匹配
-http_requests_total{method="GET"}
-
-# 不等於
-http_requests_total{method!="DELETE"}
-
-# 正則匹配
-http_requests_total{method=~"GET|POST"}
-
-# 正則排除
-http_requests_total{method!~"DELETE|PATCH"}
-```
-
-### Range Vector — 時間範圍查詢
-
-在 metric 後面加上 `[duration]`，可以查詢一段時間範圍內的資料：
-
-```promql
-# 過去 5 分鐘的資料
-http_requests_total[5m]
-
-# 過去 1 小時的資料
-http_requests_total[1h]
-```
-
-常用的時間單位：
-
-| 單位 | 意思 |
-|------|------|
-| `s` | 秒 |
-| `m` | 分鐘 |
-| `h` | 小時 |
-| `d` | 天 |
-| `w` | 週 |
-
-### 常用函數
-
-| 函數 | 用途 | 範例 |
-|------|------|------|
-| `rate()` | 計算 Counter 在一段時間內的每秒增長率 | `rate(http_requests_total[5m])` |
-| `increase()` | 計算 Counter 在一段時間內的總增長量 | `increase(http_requests_total[1h])` |
-| `avg()` | 計算平均值 | `avg(node_cpu_seconds_total)` |
-| `sum()` | 計算總和 | `sum(http_requests_total)` |
-| `max()` / `min()` | 最大值 / 最小值 | `max(memory_usage_bytes)` |
-| `histogram_quantile()` | 從 Histogram 計算百分位數 | `histogram_quantile(0.95, rate(http_duration_seconds_bucket[5m]))` |
-
->`rate()` 只能用在 Counter 類型的 metric 上。對 Gauge 用 `rate()` 是沒有意義的。
-
-### 實用查詢範例
-
-```promql
-# 所有 scrape targets 現在有沒有在跑？
-up
-
-# 只看掛掉的 targets
-up == 0
-
-# 過去 5 分鐘的 HTTP request 速率
-rate(http_requests_total[5m])
-
-# 記憶體使用率（百分比）
-(1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100
-
-# CPU 使用率（百分比）
-(1 - avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m]))) * 100
-```
-
-> PromQL 不需要一次全學會。先記住 `up`（服務有沒有在跑）、`rate()`（速率計算）這兩個最常用的就好
----
-
-## Metrics 的傳輸格式
-
-Prometheus 使用簡單的 **文字格式** 來傳輸 metrics。每個被監控的服務都需要 expose 一個 HTTP endpoint（通常是 `/metrics`），回傳以下格式的資料：
-
-```
-# HELP http_requests_total Total number of HTTP requests
-# TYPE http_requests_total counter
-http_requests_total{method="GET",path="/api/users"} 15234
-http_requests_total{method="POST",path="/api/users"} 3021
-
-# HELP memory_usage_bytes Current memory usage in bytes
-# TYPE memory_usage_bytes gauge
-memory_usage_bytes 4294967296
-
-# HELP http_request_duration_seconds HTTP request duration in seconds
-# TYPE http_request_duration_seconds histogram
-http_request_duration_seconds_bucket{le="0.1"} 8000
-http_request_duration_seconds_bucket{le="0.5"} 9500
-http_request_duration_seconds_bucket{le="1.0"} 9900
-http_request_duration_seconds_bucket{le="+Inf"} 10000
-http_request_duration_seconds_count 10000
-http_request_duration_seconds_sum 3250.5
-```
-
-每一行包含：
-- `# HELP` — metric 的說明文字
-- `# TYPE` — metric 的類型（counter、gauge、histogram、summary）
-- metric 名稱 + labels + 數值
-
-透過 http://localhost:8088/metrics 來查看原始的 metrics 資料。
+> **Port 對照表**
+>
+> | 服務 | URL |
+> |------|-----|
+> | Go app | http://localhost:8000 |
+> | Prometheus | http://localhost:9090 |
+> | Node Exporter | http://localhost:9100 |
+> | Alertmanager | http://localhost:9093 |
+> | Grafana | http://localhost:3000 |
 
 ---
 
 ## 小結
 
 - **Prometheus** 是 Pull-based 的 monitoring 系統，主動去服務端拉取 metrics
-- 系統架構包含四大Components：**Prometheus**（蒐集）、**Exporter**（讀metrics）、**Alertmanager**（告警）、**Grafana**（視覺化）
+- 系統架構包含四大 Components：**Prometheus**（蒐集）、**Exporter**（讀 metrics）、**Alertmanager**（告警）、**Grafana**（視覺化）
 - 所有 metrics 以 **time series** 形式儲存，包含 metric name + labels + timestamp + value
-- 四種 metric 類型：**Counter**（累計）、**Gauge**（當下值）、**Histogram**（分布）、**Summary**（百分位）
-- **Labels** 是用來區分標記 metrics 的 key-value pairs
-- **PromQL** 是 Prometheus 的查詢語言，`up` 和 `rate()` 是最常用的查詢
+- `examples/` 下面的 Docker Compose stack 已經把整套環境準備好，`docker compose up -d` 就能跑起來
+
+下一章會從這個跑起來的 stack 出發，看服務怎麼 expose metrics、Prometheus 怎麼抓下來，並介紹 metric 的四種類型、Labels、PromQL。
 
 ---
 
-[← 上一章：Monitoring 概念介紹](01-monitoring-intro.md) ｜ [下一章：動手做：部署 Prometheus →](03-first-prometheus.md)
+[← 上一章：Monitoring 概念介紹](01-monitoring-intro.md) ｜ [下一章：動手做：Metrics 與 PromQL →](03-first-prometheus.md)

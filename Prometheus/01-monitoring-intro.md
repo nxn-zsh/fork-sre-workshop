@@ -1,12 +1,11 @@
-# 01 — Monitoring 概念介紹
+# 01 Monitoring 概念介紹
 
-> **時間：15 分鐘**
 
 ---
 
 ## 目錄
 
-- [01 — Monitoring 概念介紹](#01--monitoring-概念介紹)
+- [01 Monitoring 概念介紹](#01-monitoring-概念介紹)
   - [目錄](#目錄)
   - [什麼是 Monitoring？](#什麼是-monitoring)
     - [醫生](#醫生)

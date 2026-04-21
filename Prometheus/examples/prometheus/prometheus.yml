@@ -17,17 +17,10 @@ scrape_configs:
       - targets:
           - localhost:9090
 
-  - job_name: "demo"     # This job uses promLab's demo endpoints to get metrics and is pull based, so we don't have to configure anything else
-    static_configs:
-      - targets:
-          - "demo.promlabs.com:10000"
-          - "demo.promlabs.com:10001"
-          - "demo.promlabs.com:10002"
-
   - job_name: "app"
     static_configs:
       - targets:
-          - "app:8088"
+          - "app:8000"
 
   - job_name: "node"
     static_configs:

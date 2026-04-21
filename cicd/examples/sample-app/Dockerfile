@@ -1,9 +1,9 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
@@ -20,7 +20,7 @@ WORKDIR /app
 
 COPY --from=builder /app/server .
 
-EXPOSE 8080
+EXPOSE 8000
 
 USER nobody:nobody
 
