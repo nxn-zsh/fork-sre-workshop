@@ -155,7 +155,6 @@ docker rm first-container
 
 到這裡就把一個容器的生命週期做完了。
 
-
 其實不用 Docker 也可以跑 Nginx。以 MacOS 為例，我們可以用 `brew install nginx` 安裝 nginx 套件，`brew services start nginx` 啟動 nginx，要打的指令其實差不多，但他們的使用情境不太一樣。
 
 ### 核心差別：裝進系統 vs. 隔離執行
@@ -305,7 +304,12 @@ Image 的每一層都是唯讀的，建出來之後就不能修改，同一份 D
 
 ## 1.5 容器基本操作
 
-有了映像檔，接下來就是把它跑起來。這一節整理容器從建立到刪除的完整操作。
+回顧前面講到的東西，我們已知開發者會用 Dockerfile 定義程式的運行步驟，將它建立成 Docker Image。其他人就可以用 `docker run` 指令去執行一個容器，下面是前面章節的指令的詳細介紹。
+
+```
+Dockerfile ──→ Docker Image ─── docker run ──→ Container
+（建置腳本）    （成品）          （執行）       （跑起來的容器）
+```
 
 ### 建立並啟動容器
 
@@ -344,12 +348,6 @@ docker ps
 # 列出所有容器(包含已停止的)
 docker ps -a
 
-# 只顯示容器 ID
-docker ps -q
-
-# 輸出範例：
-# CONTAINER ID   IMAGE               STATUS          PORTS                  NAMES
-# a1b2c3d4e5f6   nginx:1.27-alpine   Up 10 minutes   0.0.0.0:8080->80/tcp   my-nginx
 ```
 
 ### 容器生命週期管理

@@ -116,7 +116,7 @@ docker build -t my-app .         # 建置映像檔，取名叫 my-app
 docker run -p 8080:8080 my-app   # 跑起來
 ```
 
-跑完這些，
+跑完這些，打開瀏覽器連 `http://localhost:8080`，就會看到 `Hello from Go! Hostname: ...` 的回應。
 
 ### 指令速查表
 
@@ -139,4 +139,4 @@ docker run -p 8080:8080 my-app   # 跑起來
 
 專案開發越多，專案啟動的設定過程越長，Dockerfile 也會長得越複雜。它最大的價值是強制要求把專案的設定流程定義成規範化語言，讓啟動流程可以維持統一，並減少新進開發者的設定負擔。做完這個章節，我們就正式完成了 Dockerfile → `docker build` → Image → `docker run` → Container 的完整循環。
 
-→ 綜合練習：[exercises/03-push-to-dockerhub.md](exercises/03-push-to-dockerhub.md)
+→ 綜合練習：[exercises/02-push-to-dockerhub.md](exercises/02-push-to-dockerhub.md)
