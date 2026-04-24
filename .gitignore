@@ -4,3 +4,9 @@ CLAUDE.md
 .DS_Store
 Prometheus/examples/prometheus/secrets/
 .idea
+
+# Sibling capstone repo lives here as a separate git repo; keep it out
+sre-workshop-capstone/
+
+# claude-mem session artifacts
+.context/
