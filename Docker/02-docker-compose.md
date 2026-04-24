@@ -4,7 +4,7 @@
 
 Ocean 現在會跑容器了，但每次要啟動服務都要手動打一串 `docker run`，參數又臭又長。更慘的是，上次好不容易把 Frontend + Backend + DB 三個容器都跑起來了，結果 Snow 問他：「指令記在哪？」Ocean：「...我記在腦袋裡。」Snow：「喔不。」
 
-**Docker Compose** 是 Docker 官方提供的多容器編排工具，透過一個 YAML 設定檔定義所有容器的 組態（映像檔、連接埠、Volume、環境變數、相依關係），再以單一指令 `docker compose up` 完成整個應用的部署。如果你使用 OrbStack，Docker Compose 已內建其中，並且可以透過 `docker compose version` 確認正在運行中的版本。
+**Docker Compose** 是 Docker 官方提供的多容器編排工具，透過一個 YAML 設定檔定義所有容器的狀態（映像檔、連接埠、Volume、環境變數、相依關係），再以單一指令 `docker compose up` 完成整個應用的部署。如果你使用 OrbStack，Docker Compose 已內建其中，並且可以透過 `docker compose version` 確認正在運行中的版本。
 
 實際專案中，一個服務通常由多個容器組成。Docker Compose 將這些容器的設定與啟動流程集中定義在 `docker-compose.yml`（或 `compose.yml`）中，納入版本控制後，團隊成員只需 clone 專案並執行 `docker compose up`，即可在本機重現完整的服務環境。
 
