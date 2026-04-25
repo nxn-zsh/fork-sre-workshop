@@ -32,6 +32,10 @@
 ```powershell
 wsl --install
 ```
+之後重新開啟 PowerShell 時，要再次進入 WSL，可以輸入下面這段指令：
+```powershell
+wsl
+```
 
 ### 安裝與驗證
 
