@@ -38,8 +38,6 @@ cd github-actions-lab
 
 ## 先跑一個 Workflow
 
-先不用管每一行在幹嘛，照著貼就好，我們等一下會回來解釋。
-
 ### 建立目錄結構
 
 GitHub Actions 的 workflow 檔案必須放在 `.github/workflows/` 目錄下。我們先來建立這個目錄：

@@ -102,7 +102,7 @@ git pull origin main
 git checkout -b feature/update-greeting
 ```
 
-#### Step 2：改歡迎訊息
+#### Step 2：改歡迎訊息（**先不要動 test**）
 
 打開 `handler.go`，把 `handleRoot` 裡的字串換成你想要的（例如加上你的名字）：
 
@@ -114,7 +114,27 @@ if _, err := w.Write([]byte("Hello, GitHub Actions!")); err != nil {
 if _, err := w.Write([]byte("Hello from <你的名字>!")); err != nil {
 ```
 
-#### Step 3：同步更新測試
+> 先不要改 `handler_test.go`，留著它原本期待 `Hello, GitHub Actions!`。等等讓 CI 直接告訴你哪裡掛掉，體會 CI 擋住合併的感覺。
+
+#### Step 3：Commit、Push、開 PR，觀察 CI 失敗
+
+```bash
+git add handler.go
+git commit -m "chore: personalize greeting message"
+git push origin feature/update-greeting
+```
+
+開 PR：
+
+1. 到你 fork 的 GitHub 頁面
+2. 點擊 **Pull requests** → **New pull request**
+3. **確認 base 是你 fork 的 `main`**（GitHub 預設可能指向 upstream，要切回你自己的 fork）
+4. compare 選擇 `feature/update-greeting`
+5. 填寫 PR 標題和描述，點擊 **Create pull request**
+
+PR 開好後向下捲到 CI 區塊，會看到 **test job 失敗**，因為它還在期待舊的字串。點 **Details** 看 log，確認失敗原因確實是字串不一致。
+
+#### Step 4：把 test 一起改掉
 
 打開 `handler_test.go`，把 `TestHandleRoot` 裡的 `expected` 改成一樣的字串：
 
@@ -122,37 +142,21 @@ if _, err := w.Write([]byte("Hello from <你的名字>!")); err != nil {
 expected := "Hello from <你的名字>!"
 ```
 
-> 故意先**不**改 test 也行 — push 上去 CI 會失敗，可以體驗 CI 擋住合併的感覺，再修正 test 後 push 一次就會變綠。
-
-#### Step 4：在本地驗證
+可以先在本機跑一次確認：
 
 ```bash
 go test -v -race ./...
 ```
 
-確認測試通過後再繼續。
-
-#### Step 5：Commit 並 Push
+#### Step 5：再 push 一次，觀察 CI 變綠
 
 ```bash
-git add handler.go handler_test.go
-git commit -m "chore: personalize greeting message"
-git push origin feature/update-greeting
+git add handler_test.go
+git commit -m "test: align expected greeting with new message"
+git push
 ```
 
-#### Step 6：開 Pull Request（在你的 fork 內）
-
-1. 到你 fork 的 GitHub 頁面
-2. 點擊 **Pull requests** → **New pull request**
-3. **確認 base 是你 fork 的 `main`**（GitHub 預設可能指向 upstream，要切回你自己的 fork）
-4. compare 選擇 `feature/add-info-endpoint`
-5. 填寫 PR 標題和描述，點擊 **Create pull request**
-
-#### Step 7：觀察 CI 結果
-
-1. 在 PR 頁面下方，你會看到 CI 檢查的狀態
-2. 點擊 **Details** 查看詳細的執行記錄
-3. 確認所有檢查都通過（綠色勾勾）
+回到 PR 頁面，CI 會自動重跑同一份 workflow。這次 lint、test、build 三個 job 都會變綠，PR 就可以合併了。
 
 ### 思考問題
 
