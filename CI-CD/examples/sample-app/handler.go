@@ -8,7 +8,7 @@ import (
 
 // handleRoot returns a greeting message.
 func handleRoot(w http.ResponseWriter, r *http.Request) {
-	if _, err := w.Write([]byte("Hello, GitHub Actions! test123")); err != nil {
+	if _, err := w.Write([]byte("Hello, GitHub Actions! 666test123")); err != nil {
 		slog.Error("write response failed", "handler", "root", "error", err)
 	}
 }
