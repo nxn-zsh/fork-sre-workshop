@@ -1,71 +1,8 @@
-# 練習二：CI Pipeline 實戰練習
+# 練習二：PR 檢查練習
 
-> **難度：** 中級 | **對應章節：** 03-Go 專案 CI Pipeline
+> **難度：** 中級 | **對應章節：** [03 — Go 專案 CI Pipeline](../03-go-ci-pipeline.md)
 
----
-
-## 目錄
-
-- [練習 2-1：擴充 CI Pipeline](#練習-2-1擴充-ci-pipeline)
-- [練習 2-2：PR 檢查練習](#練習-2-2pr-檢查練習)
-
----
-
-## 練習 2-1：擴充 CI Pipeline
-
-### 目標
-
-把 03 章介紹的 `go mod verify` 加進 `ci.yml`，確認依賴套件沒被篡改。
-
-### 要求
-
-在 `ci.yml` 的 `test` job 中，在 `Run tests` 步驟 **之前** 加入：
-
-- **`go mod verify`** — 驗證 `go.sum` 中記錄的 module hash 是否正確，確保 dependencies 沒有被篡改
-
-### 提示
-
-- 用一個獨立的 `- name: Verify dependencies` step
-
-### 預期結果
-
-- 如果 `go.sum` 跟本地 module cache 不一致，CI 會在 `Verify dependencies` 這一步失敗
-
-<details>
-<summary>點擊查看答案</summary>
-
-只展示 `test` job 的改動，`lint` 和 `build` job 維持 03 章教材原樣即可：
-
-```yaml
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-
-      # === New check ===
-      - name: Verify dependencies
-        run: go mod verify
-
-      - name: Run tests
-        run: go test -v -race -coverprofile=coverage.out ./...
-      - name: Show coverage
-        run: go tool cover -func=coverage.out
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage.out
-```
-
-</details>
-
----
-
-## 練習 2-2：PR 檢查練習
+## 練習：PR 檢查練習
 
 ### 目標
 
@@ -81,7 +18,7 @@
 
 #### 前置：Fork workshop repo
 
-學員對工作坊 repo 沒有寫入權限，所以要先 fork 一份到自己帳號下，後續所有 push、PR 都在你的 fork 內進行。
+你們對 SRE Workshop repo 沒有寫入權限，所以要先 fork 一份到自己帳號下，後續所有 push、PR 都在你的 fork 內進行。
 
 1. 到 SRE Workshop repo 頁面，右上角按 **Fork**
 
@@ -94,6 +31,12 @@
    cd sre-workshop/CI-CD/examples/sample-app
    ```
 
+3. 到 fork 頁面的 **Actions** 分頁，按 **I understand my workflows, go ahead and enable them** 啟用 workflow
+
+   ![Fork 後啟用 Actions 的按鈕](../assets/exercise-02-2-fork-enable-actions.png)
+
+   > GitHub 預設會把 fork 的 workflow 停掉，避免你在不知情的情況下幫上游跑 CI。沒按這顆綠色按鈕的話，後面 push 上去 PR 不會出現任何 check。
+
 #### Step 1：建立新分支
 
 ```bash
@@ -102,9 +45,9 @@ git pull origin main
 git checkout -b feature/update-greeting
 ```
 
-#### Step 2：改歡迎訊息（**先不要動 test**）
+#### Step 2：改歡迎訊息
 
-打開 `CI-CD/examples/sample-app/handler.go`，把 `handleRoot` 裡的字串換成你想要的（例如加上你的名字）：
+打開 `CI-CD/examples/sample-app/handler.go`，把 `handleRoot` 裡的字串換成你想要的內容：
 
 ```go
 // before
@@ -114,9 +57,7 @@ if _, err := w.Write([]byte("Hello, GitHub Actions!")); err != nil {
 if _, err := w.Write([]byte("Hello from <你的名字>!")); err != nil {
 ```
 
-> 先不要改 `handler_test.go`，留著它原本期待 `Hello, GitHub Actions!`。等等讓 CI 直接告訴你哪裡掛掉，體會 CI 擋住合併的感覺。
-
-#### Step 3：Commit、Push、開 PR，觀察 CI 失敗
+#### Step 3：Commit、Push、PR
 
 ```bash
 git add handler.go
@@ -126,13 +67,19 @@ git push origin feature/update-greeting
 
 開 PR：
 
-1. 到你 fork 的 GitHub 頁面
-2. 點擊 **Pull requests** → **New pull request**
-3. **確認 base 是你 fork 的 `main`**（GitHub 預設可能指向 upstream，要切回你自己的 fork）
-4. compare 選擇 `feature/update-greeting`
-5. 填寫 PR 標題和描述，點擊 **Create pull request**
+1. 到你 fork 的 GitHub 頁面，會看到黃色 banner 提示剛剛 push 上去的分支，點 **Compare & pull request**
+
+   ![Compare & pull request banner](../assets/exercise-02-2-pr-compare-banner.png)
+
+2. **確認 base 是你 fork 的 `main`**（GitHub 預設可能指向 upstream，要切回你自己的 fork）
+3. compare 選擇 `feature/update-greeting`
+4. 填寫 PR 標題和描述，點擊 **Create pull request**
+
+   ![Create pull request 表單](../assets/exercise-02-2-pr-create-form.png)
 
 PR 開好後向下捲到 CI 區塊，會看到 **test job 失敗**，因為它還在期待舊的字串。點 **Details** 看 log，確認失敗原因確實是字串不一致。
+
+![PR CI 檢查失敗的畫面](../assets/exercise-02-2-pr-checks-failing.png)
 
 #### Step 4：把 test 一起改掉
 
@@ -158,9 +105,6 @@ git push
 
 回到 PR 頁面，CI 會自動重跑同一份 workflow。這次 lint、test、build 三個 job 都會變綠，PR 就可以合併了。
 
-### 思考問題
-
-- 如果 CI 檢查失敗了，你會怎麼做？
-- 如果你在 push 之後又發現了一個 bug，你會怎麼處理？（提示：直接在同一個分支上修復並 push，CI 會自動重跑）
+![PR CI 檢查全部通過的畫面](../assets/exercise-02-2-pr-checks-passing.png)
 
 [← 練習一：GitHub Actions 基礎練習](01-basics.md) ｜ [回到教材目錄 →](../README.md)

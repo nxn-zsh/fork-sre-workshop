@@ -388,6 +388,6 @@ Build 產出的 binary 同樣用 `upload-artifact` 上傳，後續的 deploy job
 
 完成以下練習來鞏固本章所學：
 
-[練習二：CI Pipeline 實戰練習](exercises/02-ci-pipeline.md)
+[練習二：PR 檢查練習](exercises/02-ci-pipeline.md)
 
 [← 上一章：GitHub Actions 基礎](02-github-actions-basics.md) ｜ [下一章：部署到雲端平台 →](04-deployment.md)
