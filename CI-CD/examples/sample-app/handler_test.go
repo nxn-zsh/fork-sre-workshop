@@ -16,8 +16,7 @@ func TestHandleRoot(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
 	}
-
-	expected := "Hello, GitHub Actions!"
+	expected := "Hello, GitHub Actions! 666test123"
 	if rec.Body.String() != expected {
 		t.Errorf("expected body %q, got %q", expected, rec.Body.String())
 	}
