@@ -179,7 +179,7 @@ jobs:
           path: CI-CD/examples/sample-app/bin/app
 ```
 
-> 這份 workflow 實際放在 workshop repo 的 `.github/workflows/sample-app-ci.yml`（也同步一份在 `CI-CD/examples/sample-app/.github/workflows/ci.yml` 供參考）。因為 sample-app 是這個 workshop repo 底下的一個子目錄，裡面用到了幾個「子目錄專案」才需要的特殊設定：`paths` 過濾讓 workflow 只在 `CI-CD/examples/sample-app/**` 變動時觸發、`defaults.run.working-directory` 讓所有 `run:` 指令都跑在 sample-app 子目錄裡、`cache-dependency-path` 指向子目錄的 `go.sum`、artifact 的 `path:` 也要用 repo 相對路徑（因為 `upload-artifact` 不受 `working-directory` 影響）。如果你自己的 Go 專案 repo 就是以 Go 程式碼為根目錄，這些子目錄相關設定都可以拿掉，會更精簡。
+> 這份 workflow 實際放在 workshop repo 的 `.github/workflows/sample-app-ci.yml`（GitHub 只會讀根目錄的 `.github/workflows/`）。因為 sample-app 是這個 workshop repo 底下的一個子目錄，裡面用到了幾個「子目錄專案」才需要的特殊設定：`paths` 過濾讓 workflow 只在 `CI-CD/examples/sample-app/**` 變動時觸發、`defaults.run.working-directory` 讓所有 `run:` 指令都跑在 sample-app 子目錄裡、`cache-dependency-path` 指向子目錄的 `go.sum`、artifact 的 `path:` 也要用 repo 相對路徑（因為 `upload-artifact` 不受 `working-directory` 影響）。如果你自己的 Go 專案 repo 就是以 Go 程式碼為根目錄，這些子目錄相關設定都可以拿掉，會更精簡。
 
 ## 逐段解說
 
